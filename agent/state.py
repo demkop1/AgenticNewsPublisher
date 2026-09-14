@@ -24,7 +24,7 @@ class NewsState(TypedDict):
     event_groups: list[list[Document]] = []
     generated_article: str = ""
 
-    published_articles: list[Document] = []
+    published_articles: list[Document|str] = []
 
     agent_chats: Annotated[dict[str, list], merge_agent_prompts] = {}
 

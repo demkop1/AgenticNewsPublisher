@@ -10,6 +10,46 @@ services:
       - "5432:5432"
     volumes:
       - pgvector_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U news -d news"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    image: agenticnewspublisher:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # LangGraph API control plane — talks to the redis/postgres services below,
+      # not the host-facing values in .env (which are meant for local, non-docker runs).
+      REDIS_URI: redis://redis:6379
+      DATABASE_URI: postgresql://news:news@news_postgres:5432/news
+      # App's own pgvector article/event store (langchain_postgres SQLAlchemy DSN).
+      DATABASE_URL: postgresql+psycopg://news:news@news_postgres:5432/news
+    ports:
+      - "8000:8000"
+    depends_on:
+      news_postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   pgvector_data:
+  redis_data:

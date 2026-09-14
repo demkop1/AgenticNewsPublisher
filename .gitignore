@@ -5,6 +5,7 @@ __pycache__/
 *.session-journal
 
 .langgraph_api/
+.mypy_cache/
 
 telegram_client/
 evaluation/

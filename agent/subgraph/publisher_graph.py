@@ -6,6 +6,8 @@ from agent.config import *
 
 import numpy as np
 
+import datetime
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -151,6 +153,7 @@ def generate_article(state: NewsState) -> NewsState:
     ]
     response = llm.invoke(messages)
 
+    generated_article = Document(response, metadata={"publishedAt": datetime.datetime.now()})
     return {"generated_article": response.content}
 
 builder = StateGraph(NewsState)
