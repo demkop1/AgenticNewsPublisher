@@ -21,6 +21,8 @@ class NewsState(TypedDict):
     stored_article_ids: list[str] = []
     stored_event_ids: list[str] = []
     events: list[Document] = []
+    event_groups: list[list[Document]] = []
+    generated_article: str = ""
 
     published_articles: list[Document] = []
 

@@ -98,19 +98,72 @@ def fetch_rag(state: NewsState) -> NewsState:
         "current_articles": documents_retrieved
     }
 
+# def group_similar_events(state: NewsState) -> NewsState:
+#     events: list[Document] = state["events"]
+#     if len(events) < 2:
+#         return {"event_groups": [events] if events else []}
+
+#     event_texts = [event.page_content for event in events]
+
+#     vectorizer = TfidfVectorizer().fit(event_texts)
+#     embedded_events = vectorizer.transform(event_texts)  # Perform TF-IDF embedding
+
+#     similarity_scores = (embedded_events @ embedded_events.T).toarray()  # shape: (N_events, N_events)
+#     np.fill_diagonal(similarity_scores, 0.0)  # an event is never "similar" to itself
+#     similar_mask = similarity_scores > DUPLICATE_SIMILARITY_THRESHOLD
+
+#     # Union-Find: group events pairwise flagged as similar into clusters,
+#     # so that A~B and B~C also merges A and C into the same cluster.
+#     n = len(events)
+#     parent = list(range(n))
+
+#     def find(i: int) -> int:
+#         while parent[i] != i:
+#             parent[i] = parent[parent[i]]
+#             i = parent[i]
+#         return i
+
+#     def union(i: int, j: int) -> None:
+#         root_i, root_j = find(i), find(j)
+#         if root_i != root_j:
+#             parent[root_i] = root_j
+
+#     for i in range(n):
+#         for j in range(i + 1, n):
+#             if similar_mask[i, j]:
+#                 union(i, j)
+
+#     clusters: dict[int, list[int]] = {}
+#     for i in range(n):
+#         clusters.setdefault(find(i), []).append(i)
+
+#     event_groups = [[events[i] for i in indices] for indices in clusters.values()]
+
+#     return {"event_groups": event_groups}
+
 def generate_article(state: NewsState) -> NewsState:
-    # response = llm.invoke([RAG_SYSTEM_PROMPT_TEMPLATE])
-    return {}
+    messages = [
+        ARTICLE_GENERATOR_SYSTEM_PROMPT,
+        ARTICLE_GENERATOR_PROMPT_TEMPLATE.format(
+            events=_format_events(state.get("events", [])),
+            retrieved_articles=_format_articles(state.get("current_articles", [])),
+        ),
+    ]
+    response = llm.invoke(messages)
+
+    return {"generated_article": response.content}
 
 builder = StateGraph(NewsState)
 
 builder.add_node("event_picker", event_picker)
 builder.add_node("fetch_rag", fetch_rag)
+# builder.add_node("group_similar_events", group_similar_events)
 builder.add_node("generate_article", generate_article)
 
 builder.add_edge(START, "event_picker")
 builder.add_edge("event_picker", "fetch_rag")
 builder.add_edge("fetch_rag", "generate_article")
+# builder.add_edge("group_similar_events", "generate_article")
 builder.add_edge("generate_article", END)
 
 publisher_graph = builder.compile()

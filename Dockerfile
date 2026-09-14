@@ -1,31 +1,29 @@
 FROM langchain/langgraph-api:3.11
 
-
-
 # -- Installing local requirements --
-ADD requirements.txt /deps/outer-TelegramNewsAgent/src/requirements.txt
-RUN PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -r /deps/outer-TelegramNewsAgent/src/requirements.txt
+ADD requirements.txt /deps/outer-AgenticNewsPublisher/src/requirements.txt
+RUN PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -r /deps/outer-AgenticNewsPublisher/src/requirements.txt
 # -- End of local requirements install --
 
-# -- Adding non-package dependency TelegramNewsAgent --
-ADD . /deps/outer-TelegramNewsAgent/src
+# -- Adding non-package dependency AgenticNewsPublisher --
+ADD . /deps/outer-AgenticNewsPublisher/src
 RUN set -ex && \
     for line in '[project]' \
-                'name = "TelegramNewsAgent"' \
+                'name = "AgenticNewsPublisher"' \
                 'version = "0.1"' \
                 '[tool.setuptools.package-data]' \
                 '"*" = ["**/*"]' \
                 '[build-system]' \
                 'requires = ["setuptools>=61"]' \
                 'build-backend = "setuptools.build_meta"'; do \
-        echo "$line" >> /deps/outer-TelegramNewsAgent/pyproject.toml; \
+        echo "$line" >> /deps/outer-AgenticNewsPublisher/pyproject.toml; \
     done
-# -- End of non-package dependency TelegramNewsAgent --
+# -- End of non-package dependency AgenticNewsPublisher --
 
 # -- Installing all local dependencies --
 RUN for dep in /deps/*; do             echo "Installing $dep";             if [ -d "$dep" ]; then                 echo "Installing $dep";                 (cd "$dep" && PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -e .);             fi;         done
 # -- End of local dependencies install --
-ENV LANGSERVE_GRAPHS='{"graph": "/deps/outer-TelegramNewsAgent/src/agent/graph.py:graph"}'
+ENV LANGSERVE_GRAPHS='{"graph": "/deps/outer-AgenticNewsPublisher/src/agent/graph.py:graph"}'
 
 
 
@@ -39,4 +37,4 @@ RUN rm -rf /usr/local/lib/python*/site-packages/pip* /usr/local/lib/python*/site
 RUN rm -rf /usr/lib/python*/site-packages/pip* /usr/lib/python*/site-packages/setuptools* /usr/lib/python*/site-packages/wheel* && find /usr/bin -name "pip*" -delete || true
 RUN uv pip uninstall --system pip setuptools wheel && rm /usr/bin/uv /usr/bin/uvx
 
-WORKDIR /deps/outer-TelegramNewsAgent/src
+WORKDIR /deps/outer-AgenticNewsPublisher/src
