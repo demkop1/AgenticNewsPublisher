@@ -92,8 +92,8 @@ Create a `.env` file in the project root:
 | `NEWS_API` | Yes* | NewsAPI key (alternative client, not currently wired into the graph) |
 | `DATABASE_URL` | Yes | Postgres connection string, e.g. `postgresql+psycopg://news:news@localhost:5432/news` |
 | `USER_PROFILE` or `USER_PROFILE_FILEPATH` | Yes (one of them) | The reader's interests/preferences, in plain text — drives every prompt in the pipeline |
-| `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` | No | Optional [LangSmith](https://smith.langchain.com/) tracing |
-| `LANGGRAPH_CLOUD_LICENSE_KEY` | Yes, for Docker | Only needed to run the app via `docker compose`/the built image (see below) — the image is LangGraph Platform's licensed API server, which refuses to start without either this or a `LANGSMITH_API_KEY` from an account with LangGraph Cloud/Platform access |
+| `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` | No | Optional [LangSmith](https://smith.langchain.com/) tracing |
+| `LANGSMITH_API_KEY` | Yes, for Docker | Only needed to run the app via `docker compose`/the built image (see below) — the image is LangGraph Platform's licensed API server, which refuses to start without either this or a `LANGSMITH_API_KEY` from an account with LangGraph Cloud/Platform access |
 
 \* only whichever news client you're actually using needs a valid key.
 
