@@ -236,8 +236,7 @@ Writing rules:
   not a list of bullet points.
 - Write in a style and tone consistent with the user's profile above.
 - Start with a short, specific headline, followed by the article body.
-- Keep the article body to 1-2 short paragraphs total. Be concise and readable on
-  Telegram: no walls of text, no markdown tables, no fabricated hyperlinks.
+- Keep the article body to 1-2 short paragraphs total. Be concise and readable: no walls of text, no markdown tables, no fabricated hyperlinks.
 - Do not fabricate a byline, publication name, or date beyond what's given.
 
 Output only the article itself (headline + body) — no explanations, no meta-commentary.
