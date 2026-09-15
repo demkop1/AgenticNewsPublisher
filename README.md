@@ -8,7 +8,8 @@ The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agent
 
 Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=True).draw_mermaid_png()`), so it always reflects the actual node names and wiring in code rather than a hand-drawn approximation:
 
-![Graph structure](docs/mermaid-diagram.png)
+<img src="docs/mermaid-diagram.png" alt="Graph structure" width="450">
+
 
 Note: `criticize`'s two dotted edges above (to `search_worker` and `create_events`) are its only *declared* destinations (`add_node(..., destinations=(...))` in `search_graph.py`) — the direct-to-`END` branch it can now also take on persistent redundancy isn't part of the static graph declaration, so LangGraph's own exporter doesn't draw it either.
 
