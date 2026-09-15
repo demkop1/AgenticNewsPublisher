@@ -40,6 +40,16 @@ class QueryCritique(BaseModel):
             "turning up enough new, on-topic articles; 'revise' if it should be changed."
         )
     )
+    is_redundant: bool = Field(
+        description=(
+            "True if the 10 most recently fetched articles largely describe the same "
+            "underlying idea or event as one of the 5 most recently published articles "
+            "(even if the wording, angle, or source differs); False if they cover "
+            "genuinely new ground. This is judged independently of verdict: a query can "
+            "be well-formed and on-topic (verdict='approve') while still turning up "
+            "redundant coverage."
+        )
+    )
     feedback: str = Field(
         description=(
             "A concise explanation of what is or isn't working about the query, referencing "

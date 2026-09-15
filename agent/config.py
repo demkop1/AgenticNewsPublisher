@@ -14,6 +14,7 @@ import uuid
 # across processes and restarts.
 ARTICLE_ID_NAMESPACE = uuid.UUID("f0b3d9d0-6e1a-4b8b-9b0a-2f5c7a1e9d3c")
 EVENT_ID_NAMESPACE = uuid.UUID("6b3f8a2e-6e0a-4a3e-9f0a-9e0d3b7a1c2f")
+PUBLISHED_ARTICLE_ID_NAMESPACE = uuid.UUID("c0cab9e6-0836-4cb7-a5f5-52358e2d7934")
 
 if not os.environ['USER_PROFILE']:
     if os.environ['USER_PROFILE_FILEPATH']:
@@ -35,6 +36,7 @@ AGENT_DESCRIPTIONS: dict[str, str] = {
 AGENT_NAMES = list(AGENT_DESCRIPTIONS.keys())
 
 MAX_CRITIQUE_ATTEMPTS = 3
+N_FETCHED_PUBLISHED_ARTICLES = 5
 
 DUPLICATE_SIMILARITY_THRESHOLD = 0.3
 

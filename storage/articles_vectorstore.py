@@ -14,7 +14,8 @@ from langchain_postgres import PGVector
 from langchain_text_splitters import TextSplitter
 
 
-NEWS_COLLECTION_NAME = "news_articles" # The default
+NEWS_COLLECTION_NAME = "news_articles"
+PUBLISHED_NEWS_COLLECTION_NAME = "published_news_articles"
 
 def _connection_string() -> str:
     connection = os.environ.get("DATABASE_URL")
@@ -88,4 +89,8 @@ class NewsPostgresStore:
 
 def get_news_store(embeddings: Optional[Embeddings] = None) -> NewsPostgresStore:
     _news_store = NewsPostgresStore(embeddings=embeddings, collection_name=NEWS_COLLECTION_NAME)
+    return _news_store
+
+def get_published_articles_store() -> NewsPostgresStore:
+    _news_store = NewsPostgresStore(embeddings=None, collection_name=PUBLISHED_NEWS_COLLECTION_NAME)
     return _news_store

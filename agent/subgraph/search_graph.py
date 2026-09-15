@@ -27,7 +27,7 @@ from agent.state import NewsState
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from storage.articles_vectorstore import get_news_store
+from storage.articles_vectorstore import get_news_store, get_published_articles_store
 from storage.events_store import get_events_store
 
 llm = ChatOpenAI(model="gpt-5-mini")
@@ -46,6 +46,16 @@ def search_worker(state: NewsState) -> NewsState:
         search_query = response
 
     return {"search_query": search_query, "agent_chats": {"search_worker": [AIMessage(search_query)]}}
+
+def load_published_articles(state: NewsState) -> NewsState:
+    """Pull previously-published articles that are semantically close to the current
+    search query, so criticize (this graph) and event_picker (publisher_graph) can
+    tell what's already been covered instead of starting every run with no memory.
+    """
+    store = get_published_articles_store()
+    published = store.similarity_search( state["search_query"], k=config.N_FETCHED_PUBLISHED_ARTICLES )
+
+    return {"published_articles": published}
 
 def fetch_articles_worker(state: NewsState) -> NewsState:
     def _article_id(article_dict: dict) -> str:
@@ -79,6 +89,31 @@ def _format_articles(articles: list[Document]) -> str:
         f"- {a.page_content[:500]}\n  url: {a.metadata.get('url')}" for a in articles
     )
 
+# Covers our own store's isoformat() timestamps, plain ISO 8601, Currents API's
+# space-separated format, and a bare date, in that order.
+_PUBLISHED_AT_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S.%f%z",
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%d %H:%M:%S %z",
+    "%Y-%m-%d",
+)
+def _parse_published_at(raw: str | None) -> datetime.datetime:
+    text = (raw or "").strip().replace("Z", "+0000")
+    for fmt in _PUBLISHED_AT_FORMATS:
+        try:
+            parsed = datetime.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
+    return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+def _most_recent(articles: list[Document], limit: int) -> list[Document]:
+    def _sort_key(a: Document) -> datetime.datetime:
+        raw = a.metadata.get("publishedAt") or a.metadata.get("published_at")
+        return _parse_published_at(raw)
+
+    return sorted(articles, key=_sort_key, reverse=True)[:limit]
+
 def criticize(state: NewsState) -> Command[Literal["search_worker", "create_events"]]:
     DECISION2DESTINATION = {
         "approve": "create_events",
@@ -88,15 +123,14 @@ def criticize(state: NewsState) -> Command[Literal["search_worker", "create_even
     structured_llm = llm.with_structured_output(QueryCritique)
 
     articles = state.get("current_articles", [])
-    published_articles = state.get("published_articles", [])
-    published_urls = {a.metadata.get("url") for a in published_articles}
-    duplicate_count = sum(1 for a in articles if a.metadata.get("url") in published_urls)
+    recent_articles = _most_recent(articles, limit=10)
+    published_articles = _most_recent(state.get("published_articles", []), limit=5)
 
     chat_history = state.get("agent_chats", {}).get("criticize", [])
     formatted_prompt = CRITIC_PROMPT_TEMPLATE.format(
         search_query=state.get("search_query"),
         num_fetched=len(articles),
-        articles=_format_articles(articles),
+        articles=_format_articles(recent_articles),
         published_articles=_format_articles(published_articles),
     )
 
@@ -109,7 +143,15 @@ def criticize(state: NewsState) -> Command[Literal["search_worker", "create_even
     critique: QueryCritique = structured_llm.invoke(messages)
     attempts = state.get("critique_attempts", 0) + 1
 
-    if critique.verdict == "approve" or attempts >= MAX_CRITIQUE_ATTEMPTS or not critique.revised_query:
+    should_revise = (
+        (critique.verdict == "revise" or critique.is_redundant)
+        and critique.revised_query
+    )
+
+    if critique.is_redundant and attempts >= MAX_CRITIQUE_ATTEMPTS:
+        return Command(goto=END, update={"critique_attempts": attempts})
+
+    if not should_revise or attempts >= MAX_CRITIQUE_ATTEMPTS:
         return Command(goto=DECISION2DESTINATION["approve"], update={"critique_attempts": attempts})
 
     return Command(
@@ -235,6 +277,7 @@ builder = StateGraph(NewsState)
 # )
 
 builder.add_node("search_worker", search_worker)
+builder.add_node("load_published_articles", load_published_articles)
 builder.add_node("fetch_articles_worker", fetch_articles_worker)
 builder.add_node("create_events", create_events)
 builder.add_node("deduplicate", deduplicate)
@@ -242,7 +285,8 @@ builder.add_node("store_articles_worker", store_articles_worker)
 builder.add_node("criticize", criticize, destinations=("search_worker", "create_events"))
 
 builder.add_edge(START, "search_worker")
-builder.add_edge("search_worker", "fetch_articles_worker")
+builder.add_edge("search_worker", "load_published_articles")
+builder.add_edge("load_published_articles", "fetch_articles_worker")
 builder.add_edge("fetch_articles_worker", "criticize")
 
 builder.add_edge("create_events", "deduplicate")

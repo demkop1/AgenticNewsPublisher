@@ -28,7 +28,7 @@ from agent.structured_outputs import EventSelection
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from agent.state import NewsState
-from storage.articles_vectorstore import get_news_store
+from storage.articles_vectorstore import get_news_store, get_published_articles_store
 from storage.events_store import get_events_store, EVENTS_TABLE_NAME
 
 llm = ChatOpenAI(model="gpt-5-mini")
@@ -153,7 +153,21 @@ def generate_article(state: NewsState) -> NewsState:
     ]
     response = llm.invoke(messages)
 
-    generated_article = Document(response, metadata={"publishedAt": datetime.datetime.now()})
+    published_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    article_id = str(uuid.uuid5(PUBLISHED_ARTICLE_ID_NAMESPACE, f"{published_at}|{response.content}"))
+    generated_article = Document(
+        response.content,
+        metadata={
+            "article_id": article_id,
+            "published_at": published_at,
+            "event_ids": [e.metadata.get("event_id", e.id) for e in state.get("events", [])],
+        },
+    )
+
+    # Persist so future runs' criticize/event_picker can see what's already published.
+    store = get_published_articles_store()
+    store.upsert_articles([generated_article])
+
     return {"generated_article": response.content}
 
 builder = StateGraph(NewsState)

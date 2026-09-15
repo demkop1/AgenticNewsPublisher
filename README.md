@@ -25,19 +25,19 @@ flowchart TD
 
     subgraph publisher_graph["publisher_graph — pick & write"]
         event_picker["event_picker<br/>LLM selects which events<br/>are worth publishing"] --> fetch_rag["fetch_rag<br/>LLM-generated query retrieves<br/>supporting article context"]
-        fetch_rag --> generate_article["generate_article<br/>🚧 write the final article"]
+        fetch_rag --> generate_article["generate_article<br/>write the final article"]
     end
 
     generate_article --> END((END))
 ```
 
-Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE`) so the whole pipeline stays personalized to what that user actually wants to read.
+Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read.
 
 ## Features
 
 - **Query generation & self-critique** — an LLM drafts a boolean search query from the user profile, a second LLM pass critiques it for relevance and redundancy against what's already been published, and the query gets revised (up to a configurable retry cap) before articles are ever fetched.
 - **Structured event extraction** — each fetched article is passed through a structured-output LLM call that pulls out discrete events (description, type, date, actors, confidence) rather than treating the whole article as one blob.
-- **Similarity-based deduplication** — near-duplicate events (e.g. the same event reported by two sources) are clustered via TF-IDF cosine similarity and collapsed down to the single highest-confidence version.
+- **Similarity-based deduplication** — near-duplicate events (e.g. the same event reported by two sources) are clustered via TF-IDF cosine similarity and collapsed down to the single highest-confidence version. The reason why we chose a keywords-based embedding method like TF-IDF, instead of a semantic one, is because the articles are roughly about the same topic. Therefore the cosine similarity of their semantic embeddings will be almost always high and indistinguishable from duplicates and non-duplicates. 
 - **Two storage backends, chosen deliberately per use case**:
   - Articles are chunked (`RecursiveCharacterTextSplitter`) and embedded into Postgres via `pgvector`/`langchain-postgres`, for semantic retrieval later.
   - Events are stored as plain rows (`id`, `content`, `metadata JSONB`) via raw `psycopg`, upserted by a stable id — no embeddings needed for structured event data.
@@ -56,8 +56,8 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 ### Prerequisites
 
 - Python 3.11+
-- Docker (for the local Postgres/pgvector instance)
-- An OpenAI API key, and an API key from [Currents API](https://currentsapi.services/) and/or [NewsAPI](https://newsapi.org/)
+- Docker (to run the application using LangGraph's built Dockerfile, as well as for running PostgreSQL and Redis instances)
+- An OpenAI API key, and an API key from [Currents API](https://currentsapi.services/)
 
 ### Setup
 
@@ -77,27 +77,45 @@ Create a `.env` file in the project root:
 | `DATABASE_URL` | Yes | Postgres connection string, e.g. `postgresql+psycopg://news:news@localhost:5432/news` |
 | `USER_PROFILE` or `USER_PROFILE_FILEPATH` | Yes (one of them) | The reader's interests/preferences, in plain text — drives every prompt in the pipeline |
 | `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` | No | Optional [LangSmith](https://smith.langchain.com/) tracing |
+| `LANGGRAPH_CLOUD_LICENSE_KEY` | Yes, for Docker | Only needed to run the app via `docker compose`/the built image (see below) — the image is LangGraph Platform's licensed API server, which refuses to start without either this or a `LANGSMITH_API_KEY` from an account with LangGraph Cloud/Platform access |
 
 \* only whichever news client you're actually using needs a valid key.
 
-Start a local pgvector-enabled Postgres:
+### Running the application
 
-```bash
-docker compose up -d
-```
+The app runs as a [LangGraph Platform](https://github.com/langchain-ai/langgraph) API server — the `Dockerfile` builds `agent/graph.py:graph` into that server, and `docker-compose.yml` wires it up together with the Postgres (`news_postgres`, pgvector-enabled, doubling as both the app's own article/event storage and the API server's control-plane DB) and Redis (`redis`) it needs.
 
-> **Troubleshooting:** if you have a native/Homebrew Postgres already listening on `5432`, macOS may route `127.0.0.1:5432` to that instance instead of the container — which doesn't have the `news` role and fails with `role "news" does not exist`. Either stop the native instance or remap the container's port in `docker-compose.yml` (and update `DATABASE_URL` to match).
+1. **Start the stack:**
 
-### Run it
+   ```bash
+   docker compose up -d
+   ```
 
-This project is a [LangGraph](https://langchain-ai.github.io/langgraph/) app (see `langgraph.json`). Run it locally with:
+   This builds/starts three services: `news_postgres` (port `5432`), `redis` (port `6379`), and `api` (port `8000`, the LangGraph API server). Check everything is healthy:
 
-```bash
-pip install langgraph-cli
-langgraph dev
-```
+   ```bash
+   docker compose ps
+   ```
 
-which serves the graph defined in `agent/graph.py` through LangGraph's local API/Studio server.
+   All three should show `healthy`. If `api` keeps restarting, check its logs (`docker compose logs api`) — the most common cause is the license check above.
+
+2. **Trigger a run** — the graph runs as a thread on the API server, not as a plain Python function call, so drive it through the API rather than importing `agent.graph` directly:
+
+   ```bash
+   python demo/demo.py
+   ```
+
+   This connects via `langgraph_sdk`, creates a thread, streams live per-node updates as the pipeline runs (search → critique → extract events → dedupe → store → pick events → RAG → write article), and prints the final `generated_article`. A full run makes real OpenAI/Currents API calls and can take a few minutes.
+
+3. **Inspect the data directly**, if you want to see what got stored:
+
+   ```bash
+   docker compose exec news_postgres psql -U news -d news
+   ```
+
+   `\dt` lists tables — your own `events` and `langchain_pg_collection`/`langchain_pg_embedding` (articles + published articles, both pgvector-backed) live alongside the LangGraph API's own control-plane tables (`thread`, `run`, `checkpoints`, etc.) in the same database.
+
+4. **Stop the stack** with `docker compose down` (add `-v` to also drop the Postgres/Redis volumes and start clean).
 
 ## Project structure
 
@@ -117,7 +135,9 @@ news_client/
 storage/
   articles_vectorstore.py # pgvector-backed article store (chunking, dedup, similarity search)
   events_store.py          # plain Postgres/psycopg event store
-docker-compose.yml       # local pgvector-enabled Postgres for development
+demo/
+  run_graph.py             # example client: drives a run via langgraph_sdk against the API server
+docker-compose.yml       # news_postgres (pgvector) + redis + the built API server
 user_profile.txt         # example/default user profile
 ```
 

@@ -99,23 +99,29 @@ You are a critic that reviews a news search query before it is relied on again, 
 against the following user profile and preferences:
 {USER_PROFILE}
 
-You will be given the search query that was just used, the articles it fetched, and the
-articles already published to the user's channel.
+You will be given the search query that was just used, the 10 most recently fetched
+articles, and the 5 most recently published articles on the user's channel.
 
 Judge the query on:
 1. Relevance - does it match the topics, entities, and angle the user profile cares about,
    rather than being generic or drifting onto an unrelated topic?
-2. Redundancy - do the fetched articles mostly repeat stories, angles, or sources already
-   present in published_articles? A query that keeps surfacing what's already been published
-   is not doing its job, even if it is topically on point.
+2. Redundancy - compare the 10 most recently fetched articles against the 5 most recently
+   published articles. Mark is_redundant true if the fetched articles largely resemble the
+   same underlying idea or event as one of those published articles - even if the wording,
+   angle, or source differs - rather than genuinely new coverage. A query that keeps
+   resurfacing what's already been published isn't doing its job, even if it is topically
+   on point and would otherwise be approved.
 3. CurrentsAPI fit - the query is the `keywords` string sent to CurrentsAPI's /search endpoint,
    which supports boolean AND/OR and phrase quoting. Flag queries that are malformed, so broad
    (e.g. a single generic word) that they return noise, or so over-qualified that they likely
    return nothing new.
 
-Decide "approve" if the query is fine as-is, or "revise" if it should change. When you revise,
-give a concrete replacement query, surrounded by ** the same way the search worker formats it,
-that fixes the specific problem you identified rather than a generic rewrite.
+Decide "approve" if the query is fine as-is, or "revise" if it should change, and set
+is_redundant independently based on point 2 above - a query can be approved on relevance and
+CurrentsAPI fit while still being flagged as redundant. When you revise, give a concrete
+replacement query, surrounded by ** the same way the search worker formats it, that fixes the
+specific problem you identified (including redundancy, if flagged) rather than a generic
+rewrite.
 """
 )
 
@@ -123,10 +129,10 @@ CRITIC_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
 """
 search_query: {search_query}
 
-fetched_articles ({num_fetched} total):
+10 most recently fetched articles (out of {num_fetched} total):
 {articles}
 
-published_articles (for judging redundancy):
+5 most recently published articles (for judging redundancy):
 {published_articles}
 """
 )
