@@ -6,49 +6,9 @@ An agentic news pipeline built on [LangGraph](https://github.com/langchain-ai/la
 
 The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agents and deterministic steps:
 
-Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=True).draw_mermaid()`), so it always reflects the actual node names and wiring in code rather than a hand-drawn approximation:
+Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=True).draw_mermaid_png()`), so it always reflects the actual node names and wiring in code rather than a hand-drawn approximation:
 
-```mermaid
----
-config:
-  flowchart:
-    curve: linear
----
-graph TD;
-	__start__([<p>__start__</p>]):::first
-	__end__([<p>__end__</p>]):::last
-	__start__ --> search_graph\3a__start__;
-	search_graph\3astore_articles_worker --> publisher_graph\3aevent_picker;
-	publisher_graph\3agenerate_article --> __end__;
-	subgraph search_graph
-	search_graph\3a__start__(<p>__start__</p>)
-	search_graph\3asearch_worker(search_worker)
-	search_graph\3aload_published_articles(load_published_articles)
-	search_graph\3afetch_articles_worker(fetch_articles_worker)
-	search_graph\3acreate_events(create_events)
-	search_graph\3adeduplicate(deduplicate)
-	search_graph\3astore_articles_worker(store_articles_worker)
-	search_graph\3acriticize(criticize)
-	search_graph\3a__start__ --> search_graph\3asearch_worker;
-	search_graph\3acreate_events --> search_graph\3adeduplicate;
-	search_graph\3acriticize -.-> search_graph\3acreate_events;
-	search_graph\3acriticize -.-> search_graph\3asearch_worker;
-	search_graph\3adeduplicate --> search_graph\3astore_articles_worker;
-	search_graph\3afetch_articles_worker --> search_graph\3acriticize;
-	search_graph\3aload_published_articles --> search_graph\3afetch_articles_worker;
-	search_graph\3asearch_worker --> search_graph\3aload_published_articles;
-	end
-	subgraph publisher_graph
-	publisher_graph\3aevent_picker(event_picker)
-	publisher_graph\3afetch_rag(fetch_rag)
-	publisher_graph\3agenerate_article(generate_article)
-	publisher_graph\3aevent_picker --> publisher_graph\3afetch_rag;
-	publisher_graph\3afetch_rag --> publisher_graph\3agenerate_article;
-	end
-	classDef default fill:#f2f0ff,line-height:1.2
-	classDef first fill-opacity:0
-	classDef last fill:#bfb6fc
-```
+![Graph structure](docs/mermaid-diagram.png)
 
 Note: `criticize`'s two dotted edges above (to `search_worker` and `create_events`) are its only *declared* destinations (`add_node(..., destinations=(...))` in `search_graph.py`) — the direct-to-`END` branch it can now also take on persistent redundancy isn't part of the static graph declaration, so LangGraph's own exporter doesn't draw it either.
 
@@ -56,21 +16,21 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 
 ### Node reference
 
-**`search_graph`** (`agent/subgraph/search_graph.py`) — find, extract, store:
+**Search Graph** (`agent/subgraph/search_graph.py`) — find, extract, store:
 
-- **`search_worker`** — LLM drafts a CurrentsAPI boolean query from the user profile (and, on a retry, the critic's feedback).
-- **`load_published_articles`** — semantic search over the published-articles store for the most recent articles related to the current query, so redundancy can be judged downstream by both `criticize` and `event_picker`.
-- **`fetch_articles_worker`** — calls CurrentsAPI with the query and normalizes the results into `Document`s.
-- **`criticize`** — LLM judges the fetched articles for relevance, CurrentsAPI fit, and (via an explicit `is_redundant` flag) overlap with the recently published articles; routes back to `search_worker` to revise the query, forward to `create_events` to proceed, or straight to `END` if coverage is still redundant after the retry cap is used up.
-- **`create_events`** — per-article structured-output LLM call that extracts discrete events (description, type, date, actors, confidence).
-- **`deduplicate`** — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster.
-- **`store_articles_worker`** — chunks and embeds articles into the pgvector store, and upserts events into Postgres.
+- **Search** (`search_worker`) — LLM drafts a CurrentsAPI boolean query from the user profile (and, on a retry, the critic's feedback).
+- **Load Published** (`load_published_articles`) — semantic search over the published-articles store for the most recent articles related to the current query, so redundancy can be judged downstream by both Critic and Pick Events.
+- **Fetch Articles** (`fetch_articles_worker`) — calls CurrentsAPI with the query and normalizes the results into `Document`s.
+- **Critic** (`criticize`) — LLM judges the fetched articles for relevance, CurrentsAPI fit, and (via an explicit `is_redundant` flag) overlap with the recently published articles; routes back to Search to revise the query, forward to Create Events to proceed, or straight to `END` if coverage is still redundant after the retry cap is used up.
+- **Create Events** (`create_events`) — per-article structured-output LLM call that extracts discrete events (description, type, date, actors, confidence).
+- **Deduplicate** (`deduplicate`) — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster.
+- **Store** (`store_articles_worker`) — chunks and embeds articles into the pgvector store, and upserts events into Postgres.
 
-**`publisher_graph`** (`agent/subgraph/publisher_graph.py`) — pick & write:
+**Publisher Graph** (`agent/subgraph/publisher_graph.py`) — pick & write:
 
-- **`event_picker`** — loads events from Postgres and has an LLM choose which are worth publishing, weighing relevance, confidence, and redundancy against the published articles loaded earlier.
-- **`fetch_rag`** — LLM turns the picked events into a semantic search query and retrieves supporting article excerpts from the pgvector store for grounding.
-- **`generate_article`** — writes a single 1-2 paragraph article grounded strictly in the retrieved excerpts and selected events, explicitly instructed to avoid rehashing the most recently published articles and write about what's new instead; persists the result to the published-articles store.
+- **Pick Events** (`event_picker`) — loads events from Postgres and has an LLM choose which are worth publishing, weighing relevance, confidence, and redundancy against the published articles loaded earlier.
+- **RAG** (`fetch_rag`) — LLM turns the picked events into a semantic search query and retrieves supporting article excerpts from the pgvector store for grounding.
+- **Generate Article** (`generate_article`) — writes a single 1-2 paragraph article grounded strictly in the retrieved excerpts and selected events, explicitly instructed to avoid rehashing the most recently published articles and write about what's new instead; persists the result to the published-articles store.
 
 ## Features
 
