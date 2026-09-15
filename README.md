@@ -6,28 +6,51 @@ An agentic news pipeline built on [LangGraph](https://github.com/langchain-ai/la
 
 The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agents and deterministic steps:
 
+Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=True).draw_mermaid()`), so it always reflects the actual node names and wiring in code rather than a hand-drawn approximation:
+
 ```mermaid
-flowchart TD
-    START((START)) --> search_worker
-
-    subgraph search_graph["search_graph — find, extract, store"]
-        search_worker["search_worker<br/>LLM builds a CurrentsAPI query<br/>from the user profile"] --> fetch_articles_worker["fetch_articles_worker<br/>fetch matching articles"]
-        fetch_articles_worker --> criticize{"criticize<br/>LLM checks relevance &amp; redundancy"}
-        criticize -- revise --> search_worker
-        criticize -- approve --> create_events["create_events<br/>LLM extracts structured events<br/>per article"]
-        create_events --> deduplicate["deduplicate<br/>TF-IDF similarity clustering,<br/>highest-confidence event wins"]
-        deduplicate --> store_articles_worker["store_articles_worker<br/>chunk + embed articles (pgvector),<br/>upsert events (Postgres)"]
-    end
-
-    store_articles_worker --> event_picker
-
-    subgraph publisher_graph["publisher_graph — pick & write"]
-        event_picker["event_picker<br/>LLM selects which events<br/>are worth publishing"] --> fetch_rag["fetch_rag<br/>LLM-generated query retrieves<br/>supporting article context"]
-        fetch_rag --> generate_article["generate_article<br/>write the final article"]
-    end
-
-    generate_article --> END((END))
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	__end__([<p>__end__</p>]):::last
+	__start__ --> search_graph\3a__start__;
+	search_graph\3astore_articles_worker --> publisher_graph\3aevent_picker;
+	publisher_graph\3agenerate_article --> __end__;
+	subgraph search_graph
+	search_graph\3a__start__(<p>__start__</p>)
+	search_graph\3asearch_worker(search_worker)
+	search_graph\3aload_published_articles(load_published_articles)
+	search_graph\3afetch_articles_worker(fetch_articles_worker)
+	search_graph\3acreate_events(create_events)
+	search_graph\3adeduplicate(deduplicate)
+	search_graph\3astore_articles_worker(store_articles_worker)
+	search_graph\3acriticize(criticize)
+	search_graph\3a__start__ --> search_graph\3asearch_worker;
+	search_graph\3acreate_events --> search_graph\3adeduplicate;
+	search_graph\3acriticize -.-> search_graph\3acreate_events;
+	search_graph\3acriticize -.-> search_graph\3asearch_worker;
+	search_graph\3adeduplicate --> search_graph\3astore_articles_worker;
+	search_graph\3afetch_articles_worker --> search_graph\3acriticize;
+	search_graph\3aload_published_articles --> search_graph\3afetch_articles_worker;
+	search_graph\3asearch_worker --> search_graph\3aload_published_articles;
+	end
+	subgraph publisher_graph
+	publisher_graph\3aevent_picker(event_picker)
+	publisher_graph\3afetch_rag(fetch_rag)
+	publisher_graph\3agenerate_article(generate_article)
+	publisher_graph\3aevent_picker --> publisher_graph\3afetch_rag;
+	publisher_graph\3afetch_rag --> publisher_graph\3agenerate_article;
+	end
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 ```
+
+Note: `criticize`'s two dotted edges above (to `search_worker` and `create_events`) are its only *declared* destinations (`add_node(..., destinations=(...))` in `search_graph.py`) — the direct-to-`END` branch it can now also take on persistent redundancy isn't part of the static graph declaration, so LangGraph's own exporter doesn't draw it either.
 
 Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read.
 
