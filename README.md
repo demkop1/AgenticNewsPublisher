@@ -10,9 +10,6 @@ Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=Tru
 
 <img src="docs/mermaid-diagram.png" alt="Graph structure" width="450">
 
-
-Note: `criticize`'s two dotted edges above (to `search_worker` and `create_events`) are its only *declared* destinations (`add_node(..., destinations=(...))` in `search_graph.py`) — the direct-to-`END` branch it can now also take on persistent redundancy isn't part of the static graph declaration, so LangGraph's own exporter doesn't draw it either.
-
 Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read.
 
 ### Node reference
