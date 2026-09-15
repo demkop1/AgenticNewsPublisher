@@ -2,8 +2,6 @@
 
 An agentic news pipeline built on [LangGraph](https://github.com/langchain-ai/langgraph) that searches for news matching a user's stated interests, extracts and deduplicates discrete events from the coverage, and picks which of those events are worth writing up — as a step toward auto-publishing curated news via API.
 
-> **Status:** actively evolving. The search → extract → dedupe → store pipeline runs end to end; the publishing side (picking events, retrieving supporting context, and writing the final article) is in progress. See [Status & roadmap](#status--roadmap).
-
 ## How it works
 
 The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agents and deterministic steps:
@@ -32,6 +30,24 @@ flowchart TD
 ```
 
 Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read.
+
+### Node reference
+
+**`search_graph`** (`agent/subgraph/search_graph.py`) — find, extract, store:
+
+- **`search_worker`** — LLM drafts a CurrentsAPI boolean query from the user profile (and, on a retry, the critic's feedback).
+- **`load_published_articles`** — semantic search over the published-articles store for the most recent articles related to the current query, so redundancy can be judged downstream by both `criticize` and `event_picker`.
+- **`fetch_articles_worker`** — calls CurrentsAPI with the query and normalizes the results into `Document`s.
+- **`criticize`** — LLM judges the fetched articles for relevance, CurrentsAPI fit, and (via an explicit `is_redundant` flag) overlap with the recently published articles; routes back to `search_worker` to revise the query, forward to `create_events` to proceed, or straight to `END` if coverage is still redundant after the retry cap is used up.
+- **`create_events`** — per-article structured-output LLM call that extracts discrete events (description, type, date, actors, confidence).
+- **`deduplicate`** — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster.
+- **`store_articles_worker`** — chunks and embeds articles into the pgvector store, and upserts events into Postgres.
+
+**`publisher_graph`** (`agent/subgraph/publisher_graph.py`) — pick & write:
+
+- **`event_picker`** — loads events from Postgres and has an LLM choose which are worth publishing, weighing relevance, confidence, and redundancy against the published articles loaded earlier.
+- **`fetch_rag`** — LLM turns the picked events into a semantic search query and retrieves supporting article excerpts from the pgvector store for grounding.
+- **`generate_article`** — writes a single 1-2 paragraph article grounded strictly in the retrieved excerpts and selected events, explicitly instructed to avoid rehashing the most recently published articles and write about what's new instead; persists the result to the published-articles store.
 
 ## Features
 
@@ -136,19 +152,7 @@ storage/
   articles_vectorstore.py # pgvector-backed article store (chunking, dedup, similarity search)
   events_store.py          # plain Postgres/psycopg event store
 demo/
-  run_graph.py             # example client: drives a run via langgraph_sdk against the API server
+  demo.py                  # example client: drives a run via langgraph_sdk against the API server
 docker-compose.yml       # news_postgres (pgvector) + redis + the built API server
 user_profile.txt         # example/default user profile
 ```
-
-## Status & roadmap
-
-- [x] Query generation with self-critique loop
-- [x] Article fetching (Currents API)
-- [x] Structured event extraction per article
-- [x] Event deduplication (TF-IDF similarity clustering)
-- [x] Article + event storage (pgvector and Postgres)
-- [x] Event selection for publishing
-- [x] RAG query generation & retrieval of supporting article context
-- [ ] Final article generation from retrieved context
-- [ ] Publishing the generated article through an API.

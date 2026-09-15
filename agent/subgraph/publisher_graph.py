@@ -149,6 +149,7 @@ def generate_article(state: NewsState) -> NewsState:
         ARTICLE_GENERATOR_PROMPT_TEMPLATE.format(
             events=_format_events(state.get("events", [])),
             retrieved_articles=_format_articles(state.get("current_articles", [])),
+            published_articles=_format_articles(state.get("published_articles", [])),
         ),
     ]
     response = llm.invoke(messages)

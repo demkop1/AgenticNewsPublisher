@@ -215,14 +215,19 @@ You are a news writer producing a single article for the user's blog, based
 on the following user profile and preferences:
 {USER_PROFILE}
 
-You will be given the events selected for publishing and excerpts from the original
-source articles they were extracted from, retrieved to give you the full context behind
-each event.
+You will be given the events selected for publishing, excerpts from the original source
+articles they were extracted from (retrieved to give you the full context behind each
+event), and the most recently published articles on this channel.
 
 Writing rules:
 - Base every factual claim strictly on the retrieved article excerpts and the selected
   events. Never invent facts, quotes, numbers, or details that are not present in them.
 - If the excerpts disagree or leave a detail unclear, say so rather than guessing.
+- Do not generate a redundant article: compare the story you're about to write against
+  most_recently_published_articles. If it covers the same underlying idea or event as one
+  of them, do not just restate it under a new headline - use the selected events and
+  excerpts to write about what's actually new instead (a development, a new figure or
+  actor, an update, a different angle the prior coverage didn't take).
 - Stick to a single topic: pick the one story that the selected events and excerpts most
   strongly and coherently support, and write only about that. If the events cover several
   unrelated topics, focus on the most newsworthy one and leave the rest out entirely
@@ -245,5 +250,8 @@ selected_events:
 
 retrieved_article_excerpts:
 {retrieved_articles}
+
+most_recently_published_articles (do not repeat these; write about what's new instead):
+{published_articles}
 """
 )
