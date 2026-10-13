@@ -118,6 +118,8 @@ The app runs as a [LangGraph Platform](https://github.com/langchain-ai/langgraph
 
 ## Live dashboard (`demo/live_demo.py`)
 
+<img src="docs/live_dashboard.png" alt="A screenshot of the live demo's dashboard" width="450">
+
 `live_demo.py` does what `demo.py` does — it keeps re-running the pipeline against the API server, one fresh thread per check — but renders it as a full-screen terminal dashboard built with [`rich`](https://github.com/Textualize/rich) (included in `requirements.txt`).
 
 ```bash
