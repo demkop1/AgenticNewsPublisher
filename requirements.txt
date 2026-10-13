@@ -14,3 +14,7 @@ pydantic>=2.10
 numpy>=1.26
 scikit-learn>=1.5
 telethon>=1.44.0
+rich>=13.7
+opentelemetry-api>=1.45.1
+opentelemetry-sdk>=1.45.1
+opentelemetry-exporter-otlp-proto-http>=1.45.1

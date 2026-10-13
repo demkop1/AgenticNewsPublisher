@@ -102,7 +102,9 @@ The app runs as a [LangGraph Platform](https://github.com/langchain-ai/langgraph
    python demo/demo.py
    ```
 
-   This connects via `langgraph_sdk`, creates a thread, streams live per-node updates as the pipeline runs (search → critique → extract events → dedupe → store → pick events → RAG → write article), and prints the final `generated_article`. A full run makes real OpenAI/Currents API calls and can take a few minutes.
+   This connects via `langgraph_sdk` and re-runs the pipeline on a fresh thread every `--interval` seconds (default 600; `--max-runs N` stops after N checks, otherwise Ctrl-C), printing one progress line per step and each article it writes. A full run makes real OpenAI/Currents API calls and can take a few minutes.
+
+   For a full-screen dashboard instead of log lines, see [Live dashboard](#live-dashboard-demolive_demopy) below.
 
 3. **Inspect the data directly**, if you want to see what got stored:
 
@@ -113,6 +115,32 @@ The app runs as a [LangGraph Platform](https://github.com/langchain-ai/langgraph
    `\dt` lists tables — your own `events` and `langchain_pg_collection`/`langchain_pg_embedding` (articles + published articles, both pgvector-backed) live alongside the LangGraph API's own control-plane tables (`thread`, `run`, `checkpoints`, etc.) in the same database.
 
 4. **Stop the stack** with `docker compose down` (add `-v` to also drop the Postgres/Redis volumes and start clean).
+
+## Live dashboard (`demo/live_demo.py`)
+
+`live_demo.py` does what `demo.py` does — it keeps re-running the pipeline against the API server, one fresh thread per check — but renders it as a full-screen terminal dashboard built with [`rich`](https://github.com/Textualize/rich) (included in `requirements.txt`).
+
+```bash
+docker compose up -d                       # the api, redis and news_postgres services must be up
+python demo/live_demo.py                   # check every 10 minutes until Ctrl-C
+python demo/live_demo.py --interval 120    # check every 2 minutes
+python demo/live_demo.py --max-runs 3      # stop after 3 checks
+```
+
+Run it from the repository root, in a real terminal (it uses the alternate screen). Options:
+
+- `--interval SECONDS` — wait between checks (default `600`, must not be negative).
+- `--max-runs N` — stop after N checks (default: run until Ctrl-C).
+- `LANGGRAPH_API_URL` / `LANGGRAPH_API_KEY` env vars (or `.env`) — server URL (default `http://localhost:8000`) and optional API key.
+
+The screen shows:
+
+- **Agent pipeline** — every node of the search and publisher graphs: `●` running, `✔` done, `○` pending, `×N` if the node ran several times (e.g. the critic sent the search back for a revised query).
+- **Agent activity** — a timestamped feed of what each agent produced (drafted query, articles fetched, critic pass, events extracted, ...).
+- **Latest article** and **Front page history** — the newest article rendered as Markdown, and earlier ones below it.
+- **Footer** — status or countdown to the next check, plus check / article / failure counters.
+
+A failed check (server restarting, API quota hit) is logged in the feed and retried at the next interval. On exit (Ctrl-C or `--max-runs`), the counts and every article written during the session are printed. Each check makes real OpenAI and Currents API calls (about 3–4 minutes each), so mind your quotas when choosing a short interval.
 
 ## Project structure
 
@@ -134,6 +162,7 @@ storage/
   events_store.py          # plain Postgres/psycopg event store
 demo/
   demo.py                  # example client: drives a run via langgraph_sdk against the API server
+  live_demo.py             # same, as a full-screen rich dashboard
 docker-compose.yml       # news_postgres (pgvector) + redis + the built API server
 user_profile.txt         # example/default user profile
 ```

@@ -91,7 +91,7 @@ def fetch_rag(state: NewsState) -> NewsState:
     try:
         search_query = re.findall(STRING_EXTRACTOR, response.content)[-1]
     except IndexError:
-        search_query = response
+        search_query = response.content
 
     articles_store = get_news_store(embeddings=embeddings_model)
     documents_retrieved = articles_store.similarity_search(search_query)
