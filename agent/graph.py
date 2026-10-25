@@ -19,9 +19,6 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from agent.state import NewsState
 
-llm = ChatOpenAI(model="gpt-5-mini")
-embeddings_model = OpenAIEmbeddings()
-currentsapi_client = CurrentsAPIClient()
 
 builder = StateGraph(NewsState)
 

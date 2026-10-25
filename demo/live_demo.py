@@ -63,8 +63,7 @@ PIPELINE = [
     ("create_events", "Create Events", "search"),
     ("deduplicate", "Deduplicate", "search"),
     ("store_articles_worker", "Store", "search"),
-    ("event_picker", "Pick Events", "publish"),
-    ("fetch_rag", "RAG", "publish"),
+    ("events_reranker", "Rerank Events", "publish"),
     ("generate_article", "Generate Article", "publish"),
 ]
 NODE_INDEX = {name: i for i, (name, _, _) in enumerate(PIPELINE)}
@@ -129,10 +128,8 @@ def narrate(dash: Dashboard, node: str, update: dict) -> None:
             f"Stored {len(update.get('stored_article_ids') or [])} article(s) and "
             f"{len(update.get('stored_event_ids') or [])} event(s)", "blue",
         )
-    elif node == "event_picker":
-        dash.say("Editor agent picked the events worth publishing", "green")
-    elif node == "fetch_rag":
-        dash.say("Retrieved supporting excerpts for grounding", "green")
+    elif node == "events_reranker":
+        dash.say("Reranker kept the events most relevant to the profile", "green")
     elif node == "generate_article":
         dash.say("Writer agent finished a new article", "bold green")
     else:

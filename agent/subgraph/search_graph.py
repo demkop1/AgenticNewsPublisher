@@ -1,51 +1,162 @@
-import os
+"""Primary search graph: articles come from Tavily's news search.
+
+Tavily takes a natural-language query (max 400 chars) rather than a Boolean one, so the
+search worker and critic use Tavily-specific prompts. Everything downstream of the critic
+(events, dedup, storage) mirrors the self-contained CurrentsAPI backup in search_graph_currents.py.
+"""
 import datetime
 import uuid
+from functools import partial
 from typing import Literal
-from agent.config import AGENT_NAMES, MAX_CRITIQUE_ATTEMPTS, EVENT_ID_NAMESPACE, DUPLICATE_SIMILARITY_THRESHOLD
-import agent.config as config
-
-import numpy as np
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-
-from news_client.newsapi_client import NewsAPIClient
-from news_client.current_api import CurrentsAPIClient
 
 import re
-from agent.prompts import *
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from agent.structured_outputs import SchedulerDecision, QueryCritique, Event, EventsExtraction
-
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
+
+import agent.config as config
+from agent.config import (
+    MAX_CRITIQUE_ATTEMPTS,
+    RELEVANCE_THRESHOLD,
+    EVENT_ID_NAMESPACE,
+    DUPLICATE_SIMILARITY_THRESHOLD,
+)
+from agent.prompts import (
+    STRING_EXTRACTOR,
+    CRITIC_PROMPT_TEMPLATE,
+    build_search_system_prompt,
+    build_critic_system_prompt,
+    build_tavily_search_system_prompt,
+    build_tavily_critic_system_prompt,
+    EVENTS_EXTRACTION_SYSTEM_PROMPT,
+    EVENTS_EXTRACTION_PROMPT_TEMPLATE,
+)
 from agent.state import NewsState
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
+from agent.structured_outputs import QueryCritique, Event, EventsExtraction
 from storage.articles_vectorstore import get_news_store, get_published_articles_store
 from storage.events_store import get_events_store
+from news_client.tavily_api import TavilyNewsClient
 
-llm = ChatOpenAI(model="gpt-5-mini")
-embeddings_model = OpenAIEmbeddings()
+tavily_client = TavilyNewsClient()
 
-currentsapi_client = CurrentsAPIClient()
 
 def search_worker(state: NewsState) -> NewsState:
     chat_history = state.get("agent_chats", {}).get("search_worker", [])
-    messages = [SEARCH_SYSTEM_PROMPT, *[m for m in chat_history]]
+    messages = [
+        build_tavily_search_system_prompt(state.get("user_profile") or config.USER_PROFILE),
+        *chat_history,
+    ]
 
-    response = llm.invoke(messages)
+    response = config.SEARCH_LLM.invoke(messages)
     try:
-        search_query = re.findall(STRING_EXTRACTOR, response.content)[-1]
+        search_query = " ".join(re.findall(STRING_EXTRACTOR, response.content)[-1].split())
     except IndexError:
-        search_query = response
+        search_query = response.content.strip().strip("*").strip()
 
     return {"search_query": search_query, "agent_chats": {"search_worker": [AIMessage(search_query)]}}
+
+
+def fetch_articles_worker(state: NewsState) -> NewsState:
+    def _article_id(article_dict: dict) -> str:
+        key = article_dict.get("url") or article_dict.get("title")
+        return str(uuid.uuid5(config.ARTICLE_ID_NAMESPACE, key))
+
+    def _article_to_document(**metadata):
+        doc_content = metadata["title"] + "\n" + metadata["content"]
+        metadata.pop("content")
+        return Document(doc_content, metadata=metadata)
+
+    articles = [
+        _article_to_document(article_id=_article_id(a), **a)
+        for a in tavily_client.search(state["search_query"])
+    ]
+
+    return {"current_articles": articles, "articles_fetched": True}
+
+def check_relevance(
+    state: NewsState, threshold: float = RELEVANCE_THRESHOLD, max_chars: int = 500
+) -> Command[Literal["criticize", "create_events"]]:
+    """Keep only the fetched articles whose cross-encoder relevance score against the
+    search query is greater than `threshold`. If none are left, go to the critic to
+    revise the query; otherwise go straight to event extraction.
+
+    Bind a different threshold with functools.partial(check_relevance, threshold=...).
+    """
+    articles = state.get("current_articles", [])
+    if not articles:
+        return Command(goto="criticize", update={"current_articles": [], "article_scores": []})
+
+    pairs = [(state["search_query"], a.page_content[:max_chars]) for a in articles]
+    scores = config.RERANKER_MODEL.predict(pairs)
+
+    relevant = []
+    for article, score in zip(articles, scores):
+        article.metadata["relevance_score"] = float(score)
+        if score > threshold:
+            relevant.append(article)
+
+    return Command(
+        goto="create_events" if relevant else "criticize",
+        update={"current_articles": relevant, "article_scores": [float(x) for x in scores]},
+    )
+
+
+def criticize(state: NewsState) -> Command[Literal["search_worker", "create_events"]]:
+    structured_llm = config.SEARCH_LLM.with_structured_output(QueryCritique)
+
+    articles = state.get("current_articles", [])
+    recent_articles = _most_recent(articles, limit=5)
+    published_articles = _most_recent(state.get("published_articles", []), limit=5)
+
+    chat_history = state.get("agent_chats", {}).get("criticize", [])
+    formatted_prompt = CRITIC_PROMPT_TEMPLATE.format(
+        search_query=state.get("search_query"),
+        num_fetched=len(articles),
+        articles=_format_articles(recent_articles),
+        published_articles=_format_articles(published_articles),
+    )
+
+    messages = [
+        build_tavily_critic_system_prompt(state.get("user_profile") or config.USER_PROFILE),
+        *chat_history,
+        formatted_prompt,
+    ]
+
+    critique: QueryCritique = structured_llm.invoke(messages)
+    attempts = state.get("critique_attempts", 0) + 1
+
+    should_revise = (
+        (critique.verdict == "revise" or critique.is_redundant)
+        and critique.revised_query
+    )
+
+    if critique.is_redundant and attempts >= MAX_CRITIQUE_ATTEMPTS:
+        return Command(goto=END, update={"critique_attempts": attempts})
+
+    if not should_revise or attempts >= MAX_CRITIQUE_ATTEMPTS:
+        return Command(goto="create_events", update={"critique_attempts": attempts})
+
+    return Command(
+        goto="search_worker",
+        update={
+            "critique_attempts": attempts,
+            "agent_chats": {
+                "search_worker": [
+                    HumanMessage(
+                        f"Critic feedback: {critique.feedback}\n"
+                        f"Suggested query: {critique.revised_query}"
+                    )
+                ],
+                "criticize": [
+                    formatted_prompt,
+                    AIMessage(f"Verdict: {critique.verdict}, Feedback: {critique.feedback}, Suggested Query: {critique.revised_query}"),
+                ],
+            },
+        },
+    )
 
 def load_published_articles(state: NewsState) -> NewsState:
     """Pull previously-published articles that are semantically close to the current
@@ -56,28 +167,6 @@ def load_published_articles(state: NewsState) -> NewsState:
     published = store.similarity_search( state["search_query"], k=config.N_FETCHED_PUBLISHED_ARTICLES )
 
     return {"published_articles": published}
-
-def fetch_articles_worker(state: NewsState) -> NewsState:
-    def _article_id(article_dict: dict) -> str:
-        key = article_dict.get("url") or article_dict.get("title")
-        return str(uuid.uuid5(config.ARTICLE_ID_NAMESPACE, key))
-    
-    def _article_to_document(**metadata):
-        doc_content = metadata['title'] + "\n" + metadata['content']
-        metadata.pop('content')
-
-        return Document(doc_content, metadata=metadata)
-
-    search_query = state["search_query"]
-    
-    articles = [
-        _article_to_document(article_id=_article_id(a), **a) for a in currentsapi_client.search(search_query)
-    ]
-
-    return {
-            "current_articles": articles,
-            "articles_fetched": True,
-        }
 
 def _format_articles(articles: list[Document]) -> str:
     if not articles:
@@ -114,66 +203,6 @@ def _most_recent(articles: list[Document], limit: int) -> list[Document]:
 
     return sorted(articles, key=_sort_key, reverse=True)[:limit]
 
-def criticize(state: NewsState) -> Command[Literal["search_worker", "create_events"]]:
-    DECISION2DESTINATION = {
-        "approve": "create_events",
-        "revise": "search_worker"
-    }
-
-    structured_llm = llm.with_structured_output(QueryCritique)
-
-    articles = state.get("current_articles", [])
-    recent_articles = _most_recent(articles, limit=10)
-    published_articles = _most_recent(state.get("published_articles", []), limit=5)
-
-    chat_history = state.get("agent_chats", {}).get("criticize", [])
-    formatted_prompt = CRITIC_PROMPT_TEMPLATE.format(
-        search_query=state.get("search_query"),
-        num_fetched=len(articles),
-        articles=_format_articles(recent_articles),
-        published_articles=_format_articles(published_articles),
-    )
-
-    messages = [
-        CRITIC_SYSTEM_PROMPT,
-        *[m for m in chat_history],
-        formatted_prompt,
-    ]
-
-    critique: QueryCritique = structured_llm.invoke(messages)
-    attempts = state.get("critique_attempts", 0) + 1
-
-    should_revise = (
-        (critique.verdict == "revise" or critique.is_redundant)
-        and critique.revised_query
-    )
-
-    if critique.is_redundant and attempts >= MAX_CRITIQUE_ATTEMPTS:
-        return Command(goto=END, update={"critique_attempts": attempts})
-
-    if not should_revise or attempts >= MAX_CRITIQUE_ATTEMPTS:
-        return Command(goto=DECISION2DESTINATION["approve"], update={"critique_attempts": attempts})
-
-    return Command(
-        goto=DECISION2DESTINATION["revise"],
-        update={
-            "critique_attempts": attempts,
-            "agent_chats": {
-                "search_worker": [
-                    HumanMessage(
-                        f"Critic feedback: {critique.feedback}\n"
-                        f"Suggested query: {critique.revised_query}"
-                    )
-                ],
-                "criticize": [
-                    formatted_prompt,
-                    AIMessage(f"Verdict: {critique.verdict}, Feedback: {critique.feedback}, Suggested Query: {critique.revised_query}")
-                ]
-            },
-        },
-    )
-
-
 def _event_to_document(event: Event, article: Document) -> Document:
     source_url = article.metadata.get("url")
     
@@ -191,7 +220,7 @@ def _event_to_document(event: Event, article: Document) -> Document:
     )
 
 def create_events(state: NewsState) -> NewsState:
-    structured_llm = llm.with_structured_output(EventsExtraction)
+    structured_llm = config.SEARCH_LLM.with_structured_output(EventsExtraction)
 
     event_documents: list[Document] = []
     for article in state.get("current_articles", []):
@@ -255,7 +284,7 @@ def deduplicate(state: NewsState) -> NewsState:
     return {"events": [events[i] for i in survivor_indices]}
 
 def store_articles_worker(state: NewsState) -> NewsState:
-    articles_store = get_news_store(embeddings=embeddings_model)
+    articles_store = get_news_store(embeddings=config.EMBEDDINGS_MODEL)
     events_store = get_events_store()
 
     stored_article_ids = articles_store.upsert_articles( state["current_articles"], splitter=config.ARTICLE_SPLITTER )
@@ -270,24 +299,23 @@ def store_articles_worker(state: NewsState) -> NewsState:
 
 builder = StateGraph(NewsState)
 
-# builder.add_node(
-#     "scheduler",
-#     scheduler,
-#     destinations=("search_worker", END),
-# )
-
 builder.add_node("search_worker", search_worker)
 builder.add_node("load_published_articles", load_published_articles)
 builder.add_node("fetch_articles_worker", fetch_articles_worker)
+builder.add_node(
+    "check_relevance",
+    partial(check_relevance, threshold=RELEVANCE_THRESHOLD),
+    destinations=("criticize", "create_events"),
+)
+builder.add_node("criticize", criticize, destinations=("search_worker", "create_events"))
 builder.add_node("create_events", create_events)
 builder.add_node("deduplicate", deduplicate)
 builder.add_node("store_articles_worker", store_articles_worker)
-builder.add_node("criticize", criticize, destinations=("search_worker", "create_events"))
 
 builder.add_edge(START, "search_worker")
 builder.add_edge("search_worker", "load_published_articles")
 builder.add_edge("load_published_articles", "fetch_articles_worker")
-builder.add_edge("fetch_articles_worker", "criticize")
+builder.add_edge("fetch_articles_worker", "check_relevance")
 
 builder.add_edge("create_events", "deduplicate")
 builder.add_edge("deduplicate", "store_articles_worker")

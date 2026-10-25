@@ -10,6 +10,9 @@ dotenv.load_dotenv()
 
 import uuid
 
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from news_client.current_api import CurrentsAPIClient
+
 # Fixed namespace so the same article URL always maps to the same row id,
 # across processes and restarts.
 ARTICLE_ID_NAMESPACE = uuid.UUID("f0b3d9d0-6e1a-4b8b-9b0a-2f5c7a1e9d3c")
@@ -35,12 +38,30 @@ AGENT_DESCRIPTIONS: dict[str, str] = {
 
 AGENT_NAMES = list(AGENT_DESCRIPTIONS.keys())
 
-MAX_CRITIQUE_ATTEMPTS = 3
+MAX_CRITIQUE_ATTEMPTS = 1
 N_FETCHED_PUBLISHED_ARTICLES = 5
 
 DUPLICATE_SIMILARITY_THRESHOLD = 0.3
+
+# Minimum cross-encoder relevance score (article vs. search query) an article needs to be kept by check_relevance.
+RELEVANCE_THRESHOLD = 0.3
+
+# How many of the most relevant events (by events_reranker) the publisher writes its article from.
+N_TOP_EVENTS = 5
 
 ARTICLE_SPLITTER = RecursiveCharacterTextSplitter(
     chunk_size=500,
     chunk_overlap=150,
 )
+
+from sentence_transformers import SentenceTransformer, CrossEncoder
+# CROSSENCODER_MODEL = CrossEncoder("cross-encoder/stsb-roberta-base")
+# Reranker for ordering events by relevance to the user profile (profile = query, event = passage).
+RERANKER_MODEL = CrossEncoder("Qwen/Qwen3-Reranker-0.6B")
+
+# Shared model and client instances
+SEARCH_LLM = ChatOpenAI(model="gpt-5-nano")
+PUBLISHER_LLM = ChatOpenAI(model="gpt-5-nano")
+JUDGE_LLM = ChatOpenAI(model="gpt-5-nano")  # LLM-as-a-judge in evaluation/
+EMBEDDINGS_MODEL = OpenAIEmbeddings()
+CURRENTS_API_CLIENT = CurrentsAPIClient()

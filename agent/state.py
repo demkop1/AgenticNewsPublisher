@@ -18,6 +18,7 @@ class NewsState(TypedDict):
     user_profile: str = USER_PROFILE if USER_PROFILE else None
     search_query: str
     current_articles: list[Document] = []
+    article_scores: list[float] = []  # cross-encoder score of every article fetched by the last search
     stored_article_ids: list[str] = []
     stored_event_ids: list[str] = []
     events: list[Document] = []

@@ -14,7 +14,7 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 
 ### Node reference
 
-**Search Graph** (`agent/subgraph/search_graph.py`) — find, extract, store:
+**Search Graph** (`agent/subgraph/search_graph.py`, Tavily; CurrentsAPI backup in `search_graph_currents.py`) — find, extract, store:
 
 - **Search** (`search_worker`) — LLM drafts a CurrentsAPI boolean query from the user profile (and, on a retry, the critic's feedback).
 - **Load Published** (`load_published_articles`) — semantic search over the published-articles store for the most recent articles related to the current query, so redundancy can be judged downstream by both Critic and Pick Events.
@@ -26,9 +26,8 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 
 **Publisher Graph** (`agent/subgraph/publisher_graph.py`) — pick & write:
 
-- **Pick Events** (`event_picker`) — loads events from Postgres and has an LLM choose which are worth publishing, weighing relevance, confidence, and redundancy against the published articles loaded earlier.
-- **RAG** (`fetch_rag`) — LLM turns the picked events into a semantic search query and retrieves supporting article excerpts from the pgvector store for grounding.
-- **Generate Article** (`generate_article`) — writes a single 1-2 paragraph article grounded strictly in the retrieved excerpts and selected events, explicitly instructed to avoid rehashing the most recently published articles and write about what's new instead; persists the result to the published-articles store.
+- **Rerank Events** (`events_reranker`) — a reranker model scores this run's events against the user profile and keeps the 5 most relevant.
+- **Generate Article** (`generate_article`) — writes a single 1-2 paragraph article grounded strictly in the selected events, explicitly instructed to avoid rehashing the most recently published articles and write about what's new instead; persists the result to the published-articles store.
 
 ## Features
 
@@ -156,7 +155,8 @@ agent/
   prompts.py             # every prompt used by the pipeline
   structured_outputs.py # pydantic schemas for structured LLM outputs
   subgraph/
-    search_graph.py     # search -> fetch -> critique -> extract events -> dedupe -> store
+    search_graph.py     # search -> fetch (Tavily) -> critique -> extract events -> dedupe -> store
+    search_graph_currents.py  # backup: same pipeline fetching from CurrentsAPI
     publisher_graph.py  # pick events -> retrieve context (RAG) -> generate article
 news_client/
   newsapi_client.py     # NewsAPI client

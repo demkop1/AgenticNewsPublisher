@@ -2,15 +2,16 @@ from agent.config import AGENT_NAMES
 from agent.state import USER_PROFILE
 
 import re
-STRING_EXTRACTOR = re.compile(r"\*\*(.*?)\*\*")
+STRING_EXTRACTOR = re.compile(r"\*\*(.*?)\*\*", re.DOTALL)
 
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 
-SEARCH_SYSTEM_PROMPT = SystemMessage(
+def build_search_system_prompt(user_profile: str) -> SystemMessage:
+    return SystemMessage(
 f"""
 You are an AI agent that generates the query to search for the recent news according to the following user profile and his preferences:
-{USER_PROFILE}.
+{user_profile}.
 
 Additionally you will also be given with directions on how to generate the search query, you have to comply with them.
 
@@ -77,27 +78,14 @@ Output:
 """
 )
 
-SCHEDULER_SYSTEM_PROMPT = """
-You are a search scheduler and your task is to schedule and query the search_worker whenever such a need arises.
-These needs can be when the current search query fails to return relevant articles, when broader research is needed, and etc.
+SEARCH_SYSTEM_PROMPT = build_search_system_prompt(USER_PROFILE)
 
-You will be provided with the state values, such as the current search query, the top headlines extracted from there, as well as the current articles published so far.
-Additionally, you also have to stick to the user's profile: %s.
-""" % (USER_PROFILE)
-
-SCHEDULER_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
-"""
-search_query: {search_query}
-articles: {articles}
-published_articles: {published_articles}
-"""
-)
-
-CRITIC_SYSTEM_PROMPT = SystemMessage(
+def build_critic_system_prompt(user_profile: str) -> SystemMessage:
+    return SystemMessage(
 f"""
 You are a critic that reviews a news search query before it is relied on again, checking it
 against the following user profile and preferences:
-{USER_PROFILE}
+{user_profile}
 
 You will be given the search query that was just used, the 10 most recently fetched
 articles, and the 5 most recently published articles on the user's channel.
@@ -125,17 +113,88 @@ rewrite.
 """
 )
 
+CRITIC_SYSTEM_PROMPT = build_critic_system_prompt(USER_PROFILE)
+
+# CRITIC_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
+# """
+# search_query: {search_query}
+
+# 10 most recently fetched articles (out of {num_fetched} total):
+# {articles}
+
+# 5 most recently published articles (for judging redundancy):
+# {published_articles}
+# """
+# )
+
 CRITIC_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
 """
 search_query: {search_query}
 
-10 most recently fetched articles (out of {num_fetched} total):
+3 most recently fetched articles (out of {num_fetched} total):
 {articles}
-
-5 most recently published articles (for judging redundancy):
-{published_articles}
 """
 )
+
+def build_tavily_search_system_prompt(user_profile: str) -> SystemMessage:
+    return SystemMessage(
+f"""
+You are an AI agent that writes the query used to search the web for recent news according to the following user profile and their preferences:
+{user_profile}.
+
+You may also be given directions on how to improve the query; you have to comply with them.
+
+Query rules:
+
+- Write one natural-language search query, not a Boolean expression: no AND / OR / parentheses.
+- Name the concrete topics, entities, places and events the user cares about, and the kind of development (e.g. "sanctions", "ceasefire talks", "earnings report").
+- Respect any region, audience or angle in the profile, and any exclusions it states.
+- Keep it under 300 characters and focused on a single theme; do not list every interest at once.
+- Do not include explanatory text inside the query.
+- The final query must be surrounded by **.
+
+Examples:
+
+User profile / direction: Interested in the war in Ukraine, Russian military activity, attacks, occupied territories, and sanctions.
+Output: **Russian missile and drone attacks on Ukrainian cities, frontline changes in Donetsk and Kharkiv, new sanctions on Russia**
+
+User profile / direction: Interested in major developments in artificial intelligence, especially new models released by OpenAI, Anthropic, Google, Meta, and xAI.
+Output: **new AI model releases from OpenAI, Anthropic, Google DeepMind, Meta and xAI, benchmarks and capabilities**
+
+User profile / direction: Interested in serious cybersecurity incidents affecting companies, governments, banks, hospitals, energy, or telecommunications. Do not include conferences or training.
+Output: **ransomware attack or data breach disrupting a bank, hospital, energy provider or government agency**
+"""
+    )
+
+
+def build_tavily_critic_system_prompt(user_profile: str) -> SystemMessage:
+    return SystemMessage(
+f"""
+You are a critic that reviews a news search query before it is relied on again, checking it
+against the following user profile and preferences:
+{user_profile}
+
+You will be given the search query that was just used, the 10 most recently fetched
+articles, and the 5 most recently published articles on the user's channel.
+
+Judge the query on:
+1. Relevance - does it match the topics, entities, and angle the user profile cares about,
+   rather than being generic or drifting onto an unrelated topic?
+2. Redundancy - compare the 10 most recently fetched articles against the 5 most recently
+   published articles. Mark is_redundant true if the fetched articles largely resemble the
+   same underlying idea or event as one of those published articles - even if the wording,
+   angle, or source differs - rather than genuinely new coverage.
+3. Tavily fit - the query is sent as-is to Tavily's news search, which takes a natural-language
+   query of at most 400 characters (no Boolean operators). Flag queries that use Boolean
+   syntax, are too broad (e.g. a single generic word) to return anything but noise, or cram
+   so many topics into one query that results become unfocused.
+
+Decide "approve" if the query is fine as-is, or "revise" if it should change, and set
+is_redundant independently based on point 2 above. When you revise, give a concrete
+replacement query, surrounded by ** the same way the search worker formats it, that fixes the
+specific problem you identified (including redundancy, if flagged) rather than a generic rewrite.
+"""
+    )
 
 EVENTS_EXTRACTION_SYSTEM_PROMPT = SystemMessage(
 """
@@ -159,80 +218,83 @@ Article text:
 
 
 #publisher_graph.py
-EVENT_PICKER_SYSTEM_PROMPT = SystemMessage(
-    f"""
-You are an editor selecting which extracted events are worth publishing to the user's
-channel, based on the following user profile and preferences:
-{USER_PROFILE}
+# def build_event_picker_system_prompt(user_profile: str) -> SystemMessage:
+#     return SystemMessage(
+#     f"""
+# You are an editor selecting which extracted events are worth publishing to the user's
+# channel, based on the following user profile and preferences:
+# {user_profile}
 
-You will be given a list of candidate events (each with an event_id, description, type,
-date, and confidence) and the articles already published so far. Pick the events that:
-- Match the topics and angle the user profile cares about.
-- Are not redundant with what has already been published.
-- Have reasonably high confidence.
+# You will be given a list of candidate events (each with an event_id, description, type,
+# date, and confidence) and the articles already published so far. Pick the events that:
+# - Match the topics and angle the user profile cares about.
+# - Are not redundant with what has already been published.
+# - Have reasonably high confidence.
 
-Return the event_id values of the events to publish, most newsworthy first. Return an
-empty list if none of the candidates are worth publishing.
-"""
-)
-EVENT_PICKER_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
-    """
-candidate_events:
-{events}
+# Return the event_id values of the events to publish, most newsworthy first. Return an
+# empty list if none of the candidates are worth publishing.
+# """
+# )
 
-published_articles (for judging redundancy):
-{published_articles}
-"""
-)
+# EVENT_PICKER_SYSTEM_PROMPT = build_event_picker_system_prompt(USER_PROFILE)
+# EVENT_PICKER_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
+#     """
+# candidate_events:
+# {events}
 
-RAG_SYSTEM_PROMPT_TEMPLATE = SystemMessagePromptTemplate.from_template(
-"""
-You will be given a list of events, each with the following parameters:
-- event_description: what happened.
-- event_type: the category of the event.
-- event_date: when it happened.
-- actors: the people, organizations, or countries involved.
-- confidence: how confident the extraction is.
-- source_url: the URL of the article the event was extracted from.
+# published_articles (for judging redundancy):
+# {published_articles}
+# """
+# )
 
-events:
-{events}
+# RAG_SYSTEM_PROMPT_TEMPLATE = SystemMessagePromptTemplate.from_template(
+# """
+# You will be given a list of events, each with the following parameters:
+# - event_description: what happened.
+# - event_type: the category of the event.
+# - event_date: when it happened.
+# - actors: the people, organizations, or countries involved.
+# - confidence: how confident the extraction is.
+# - source_url: the URL of the article the event was extracted from.
 
-Your task is to generate a single natural-language search query that will be used to
-retrieve, via semantic similarity search over the stored articles, the original source
-articles behind these events (and any other stored articles closely related to them),
-so their full context can be used when generating the news article.
+# events:
+# {events}
 
-The query should capture the key entities, topics, and angle shared across the events
-above. This is not a CurrentsAPI boolean query — just a plain descriptive query suited
-to an embedding similarity search. Return only the query text, with no explanations. Your query has to be surrounded by **.
-"""
-)
+# Your task is to generate a single natural-language search query that will be used to
+# retrieve, via semantic similarity search over the stored articles, the original source
+# articles behind these events (and any other stored articles closely related to them),
+# so their full context can be used when generating the news article.
 
-ARTICLE_GENERATOR_SYSTEM_PROMPT = SystemMessage(
+# The query should capture the key entities, topics, and angle shared across the events
+# above. This is not a CurrentsAPI boolean query — just a plain descriptive query suited
+# to an embedding similarity search. Return only the query text, with no explanations. Your query has to be surrounded by **.
+# """
+# )
+
+def build_article_generator_system_prompt(user_profile: str) -> SystemMessage:
+    return SystemMessage(
 f"""
 You are a news writer producing a single article for the user's blog, based
 on the following user profile and preferences:
-{USER_PROFILE}
+{user_profile}
 
-You will be given the events selected for publishing, excerpts from the original source
-articles they were extracted from (retrieved to give you the full context behind each
-event), and the most recently published articles on this channel.
+You will be given the events selected for publishing (each with its description, type,
+date, actors, confidence and source) and the most recently published articles on this channel.
 
 Writing rules:
-- Base every factual claim strictly on the retrieved article excerpts and the selected
-  events. Never invent facts, quotes, numbers, or details that are not present in them.
-- If the excerpts disagree or leave a detail unclear, say so rather than guessing.
+- Base every factual claim strictly on the selected events. Never invent facts, quotes,
+  numbers, or details that are not present in them.
+- If the events disagree or leave a detail unclear, say so rather than guessing.
 - Do not generate a redundant article: compare the story you're about to write against
   most_recently_published_articles. If it covers the same underlying idea or event as one
-  of them, do not just restate it under a new headline - use the selected events and
-  excerpts to write about what's actually new instead (a development, a new figure or
+  of them, do not just restate it under a new headline - use the selected events
+  to write about what's actually new instead (a development, a new figure or
   actor, an update, a different angle the prior coverage didn't take).
-- Stick to a single topic: pick the one story that the selected events and excerpts most
+- Stick to a single topic: pick the one story that the selected events most
   strongly and coherently support, and write only about that. If the events cover several
   unrelated topics, focus on the most newsworthy one and leave the rest out entirely
   rather than cramming them all in.
-- Synthesize the events and excerpts into one coherent narrative around that single topic,
+- Synthesize the events into one coherent narrative around that single topic,
   not a list of bullet points.
 - Write in a style and tone consistent with the user's profile above.
 - Start with a short, specific headline, followed by the article body.
@@ -242,13 +304,12 @@ Writing rules:
 Output only the article itself (headline + body) — no explanations, no meta-commentary.
 """
 )
+
+ARTICLE_GENERATOR_SYSTEM_PROMPT = build_article_generator_system_prompt(USER_PROFILE)
 ARTICLE_GENERATOR_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
 """
 selected_events:
 {events}
-
-retrieved_article_excerpts:
-{retrieved_articles}
 
 most_recently_published_articles (do not repeat these; write about what's new instead):
 {published_articles}

@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError
 from agent.config import AGENT_NAMES, AGENT_DESCRIPTIONS
-from typing import Literal
+from typing import Annotated, Literal
 import datetime
 
 _NEXT_AGENT_DESCRIPTION = "The next agent to run. One of:\n" + "\n".join(
@@ -19,16 +19,63 @@ class SchedulerDecision(BaseModel):
         ),
     )
 
+# Normalisers for unexpected LLM output (placeholder dates, "85%", a string instead of a list, ...)
+def _text(v) -> str:
+    return " ".join(str(v or "").split())
+
+def _description(v) -> str:
+    if not (text := _text(v)):
+        raise ValueError("empty event_description")  # the event is dropped by EventsExtraction
+    return text
+
+def _date(v) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(v).strip()[:10])
+    except ValueError:  # "0000-01-01", "unknown", "2026-13-45", None
+        return None
+
+def _actors(v) -> list[str]:
+    items = [v] if isinstance(v, str) else v if isinstance(v, (list, tuple, set)) else []
+    return list(dict.fromkeys(filter(None, map(_text, items))))  # no blanks or duplicates, order kept
+
+def _confidence(v) -> float:
+    try:
+        n = float(str(v).strip().rstrip("%"))
+    except ValueError:
+        return 0.0
+    return 0.0 if n != n else min(max(n / 100 if 1 < n <= 100 else n, 0.0), 1.0)
+
+
 class Event(BaseModel):
-    event_description: str = Field(description="Short description of the event")
-    event_type: str = Field(description="Type of the event")
-    event_date: datetime.date = Field(description="The date of the event")
-    actors: list[str] = Field(description="The list of actors in the event")
-    confidence: float = Field(description="The estiamted confidence of the accuracy of the event.")
+    event_description: Annotated[str, BeforeValidator(_description)] = Field(
+        description="Short description of the event"
+    )
+    event_type: Annotated[str, BeforeValidator(lambda v: _text(v).lower() or "other")] = Field(
+        description="Type of the event"
+    )
+    event_date: Annotated[datetime.date | None, BeforeValidator(_date)] = Field(
+        description="The date of the event as YYYY-MM-DD. Null if the article does not give or imply a date."
+    )
+    actors: Annotated[list[str], BeforeValidator(_actors)] = Field(
+        description="The list of actors in the event. Empty list if none are named."
+    )
+    confidence: Annotated[float, BeforeValidator(_confidence)] = Field(
+        description="The estimated confidence in the accuracy of the event, a number between 0 and 1."
+    )
+
+
+def _valid_events(v) -> list[Event]:
+    events = []
+    for item in v if isinstance(v, list) else []:
+        try:
+            events.append(Event.model_validate(item))
+        except ValidationError:  # keep the valid events instead of failing the whole extraction
+            pass
+    return events
 
 
 class EventsExtraction(BaseModel):
-    events: list[Event] = Field(
+    events: Annotated[list[Event], BeforeValidator(_valid_events)] = Field(
         description="Every discrete event described in the article. Empty list if the article describes no clear events."
     )
 
