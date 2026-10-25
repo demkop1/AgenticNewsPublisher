@@ -7,7 +7,7 @@ dotenv.load_dotenv()
 from tavily import TavilyClient
 
 MAX_QUERY_CHARS = 400  # Tavily rejects longer queries
-DEFAULT_DAYS_BACK = 7
+DEFAULT_DAYS_BACK = 30
 
 
 class TavilyNewsClient:
