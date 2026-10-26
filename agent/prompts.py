@@ -7,7 +7,7 @@ STRING_EXTRACTOR = re.compile(r"\*\*(.*?)\*\*", re.DOTALL)
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 
-def build_search_system_prompt(user_profile: str) -> SystemMessage:
+def build_search_system_prompt_currents(user_profile: str) -> SystemMessage:
     return SystemMessage(
 f"""
 You are an AI agent that generates the query to search for the recent news according to the following user profile and his preferences:
@@ -78,9 +78,9 @@ Output:
 """
 )
 
-SEARCH_SYSTEM_PROMPT = build_search_system_prompt(USER_PROFILE)
+SEARCH_SYSTEM_PROMPT = build_search_system_prompt_currents(USER_PROFILE)
 
-def build_critic_system_prompt(user_profile: str) -> SystemMessage:
+def build_critic_system_prompt_currents(user_profile: str) -> SystemMessage:
     return SystemMessage(
 f"""
 You are a critic that reviews a news search query before it is relied on again, checking it
@@ -113,30 +113,31 @@ rewrite.
 """
 )
 
-CRITIC_SYSTEM_PROMPT = build_critic_system_prompt(USER_PROFILE)
+CRITIC_SYSTEM_PROMPT = build_critic_system_prompt_currents(USER_PROFILE)
 
-# CRITIC_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
-# """
-# search_query: {search_query}
+CRITIC_PROMPT_TEMPLATE_CURRENTS = HumanMessagePromptTemplate.from_template(
+"""
+search_query: {search_query}
 
-# 10 most recently fetched articles (out of {num_fetched} total):
-# {articles}
+10 most recently fetched articles (out of {num_fetched} total):
+{articles}
 
-# 5 most recently published articles (for judging redundancy):
-# {published_articles}
-# """
-# )
+5 most recently published articles (for judging redundancy):
+{published_articles}
+"""
+)
 
 CRITIC_PROMPT_TEMPLATE = HumanMessagePromptTemplate.from_template(
 """
 search_query: {search_query}
 
-3 most recently fetched articles (out of {num_fetched} total):
+None of the {num_fetched} fetched articles passed the relevance check (reranker score above {threshold}).
+The {num_shown} closest ones, with their scores:
 {articles}
 """
 )
 
-def build_tavily_search_system_prompt(user_profile: str) -> SystemMessage:
+def build_search_system_prompt(user_profile: str) -> SystemMessage:
     return SystemMessage(
 f"""
 You are an AI agent that writes the query used to search the web for recent news according to the following user profile and their preferences:
@@ -167,32 +168,27 @@ Output: **ransomware attack or data breach disrupting a bank, hospital, energy p
     )
 
 
-def build_tavily_critic_system_prompt(user_profile: str) -> SystemMessage:
+def build_critic_system_prompt(user_profile: str) -> SystemMessage:
     return SystemMessage(
 f"""
-You are a critic that reviews a news search query before it is relied on again, checking it
-against the following user profile and preferences:
+You are a critic that helps fix a news search query that returned no relevant articles, checking
+it against the following user profile and preferences:
 {user_profile}
 
-You will be given the search query that was just used, the 10 most recently fetched
-articles, and the 5 most recently published articles on the user's channel.
+You will be given the search query that was just used and the fetched articles that came
+closest to being relevant, each with its relevance score. None of them passed the relevance check.
 
-Judge the query on:
-1. Relevance - does it match the topics, entities, and angle the user profile cares about,
-   rather than being generic or drifting onto an unrelated topic?
-2. Redundancy - compare the 10 most recently fetched articles against the 5 most recently
-   published articles. Mark is_redundant true if the fetched articles largely resemble the
-   same underlying idea or event as one of those published articles - even if the wording,
-   angle, or source differs - rather than genuinely new coverage.
-3. Tavily fit - the query is sent as-is to Tavily's news search, which takes a natural-language
-   query of at most 400 characters (no Boolean operators). Flag queries that use Boolean
-   syntax, are too broad (e.g. a single generic word) to return anything but noise, or cram
-   so many topics into one query that results become unfocused.
+Work out why the query failed, for example:
+1. Relevance - the query drifted away from the topics, entities, region or angle the user profile
+   cares about, or is so generic that it returns noise.
+2. Tavily fit - the query is sent as-is to Tavily's news search, which takes a natural-language
+   query of at most 400 characters (no Boolean operators). Boolean syntax, a single generic
+   word, or too many topics crammed into one query all give unfocused results.
+3. Over-specificity - the query asks for something so narrow that no recent news matches it.
 
-Decide "approve" if the query is fine as-is, or "revise" if it should change, and set
-is_redundant independently based on point 2 above. When you revise, give a concrete
-replacement query, surrounded by ** the same way the search worker formats it, that fixes the
-specific problem you identified (including redundancy, if flagged) rather than a generic rewrite.
+Do not judge whether the query should be revised: it must be. Explain the failure in the
+feedback, then give a concrete replacement query, surrounded by ** the same way the search
+worker formats it, that fixes the specific problem rather than being a generic rewrite.
 """
     )
 

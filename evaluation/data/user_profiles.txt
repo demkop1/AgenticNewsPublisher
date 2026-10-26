@@ -1,0 +1,100 @@
+I run a Telegram channel about the Premier League and want match results, injury news and transfer rumours, especially for Arsenal.
+I am a day trader and need fast updates on US stock market moves, Federal Reserve decisions and big company earnings reports.
+I follow Bitcoin and Ethereum closely and want news on price moves, ETF flows, exchange hacks and crypto regulation.
+I am a software engineer interested in new AI model releases, benchmarks and developer tools from OpenAI, Anthropic and Google.
+I want to keep up with the war in Ukraine: frontline developments, missile and drone attacks, Western military aid, sanctions and peace talks.
+I am a Formula 1 fan and want race results, qualifying reports, driver transfers and team news.
+I run a small newsletter on US politics and need updates on Congress, White House announcements and polling ahead of the elections.
+I am a Tesla shareholder who wants news about Tesla, Elon Musk's companies, EV delivery numbers and recalls.
+I am interested in the Israel-Gaza conflict, ceasefire negotiations and humanitarian aid, from reliable sources only.
+I am a UK homeowner tracking Bank of England interest rate decisions, mortgage rates and house price news.
+I am an NBA fan and want game results, trades, injuries and the playoff race, with a focus on the Lakers and Celtics.
+I invest in semiconductor stocks and want news on Nvidia, TSMC, chip export restrictions and AI data centre spending.
+I follow European Union politics: European Commission decisions, energy policy, migration rules and national elections in member states.
+I work in cybersecurity and want news on major data breaches, ransomware attacks and newly discovered zero-day vulnerabilities.
+I want updates on extreme weather: hurricanes, wildfires, floods and heatwaves, and how governments respond to them.
+I am a nurse interested in public health news such as disease outbreaks, WHO announcements, vaccine updates and hospital funding.
+I am a gamer and want news on new game releases, Nintendo, PlayStation, Xbox and Steam, plus major studio layoffs and acquisitions.
+I follow Apple closely and want news on iPhone and Mac launches, iOS updates, product rumours and the company's legal battles.
+I trade commodities and need news on Brent crude prices, OPEC+ decisions, natural gas supply and energy sanctions.
+I run a pop culture page and want news on celebrity tours, album releases, award shows and big-name relationship news.
+I am a Real Madrid and Barcelona supporter and want La Liga results, Champions League fixtures and transfer news.
+I am a cricket fan from India and want match results, squad selections and IPL news for the Indian national team.
+I invest in India and want news on the Sensex and Nifty, Reserve Bank of India policy, the rupee and Indian startups.
+I am interested in China: the US-China trade relationship, the Chinese economy, tech regulation and tensions around Taiwan.
+I follow Brazilian politics and economy, including government policy, the real exchange rate and the central bank.
+I love space and want news on SpaceX launches, NASA missions, new telescope images and private space companies.
+I am thinking of buying an electric car and want news on new EV models, BYD and Tesla pricing, battery technology and charging networks.
+I am a startup founder and want news on venture capital funding rounds, new unicorns, IPOs and big acquisitions.
+I travel often and want news on flight disruptions, airline strikes, airport chaos and changing visa or entry rules.
+I am a long-term index fund investor and want news on S&P 500 movements, inflation data, interest rates and recession fears.
+I follow tennis and want ATP and WTA results, Grand Slam news, ranking changes and player injuries.
+I am an NFL fan and want game results, trades, injury reports and playoff predictions, plus fantasy football advice.
+I am a baseball fan and want MLB scores, trade rumours, standings and playoff news.
+I follow the movie industry and want box office results, trailers for upcoming blockbusters, casting news and Oscar predictions.
+I want news on streaming: new Netflix, Disney+ and HBO series, cancellations, price hikes and subscriber numbers.
+I am Ukrainian living in Poland and want news on Ukrainian refugees in Europe, residency rules, benefits and the labour market.
+I follow the Russian economy and want news on sanctions, the ruble, oil exports and the central bank's decisions.
+I am interested in the Middle East beyond Gaza: Iran's nuclear programme, Saudi Arabia, Syria and regional diplomacy.
+I follow Nigeria and want news on the economy, the naira, fuel prices, politics and security.
+I follow Argentina and want news on the economy, inflation, the peso and government reforms.
+I am Canadian and want news on federal politics, the Bank of Canada, housing costs and Canada-US trade.
+I live in Australia and want news on the Reserve Bank, house prices, federal politics and extreme weather.
+I trade the yen and want news on the Bank of Japan, the Nikkei, Japanese politics and exports.
+I am a K-pop fan and want news on comebacks, tour announcements, chart records and agency announcements.
+I work in higher education and want news on university funding, student loans policy, admissions and AI in the classroom.
+I am a software developer worried about my job and want news on tech layoffs, hiring trends and remote work policies.
+I follow labour issues and want news on strikes, union negotiations, minimum wage changes and workers' rights.
+I want to follow US immigration policy: border enforcement, court rulings, visa rules and asylum decisions.
+I follow major legal news: Supreme Court rulings, high-profile trials and big regulatory lawsuits.
+I invest in gold and silver and want news on precious metal prices, central bank buying and inflation expectations.
+I trade forex and want news on EUR/USD, the US dollar index, ECB and Fed decisions and key economic data releases.
+I follow earthquakes, volcanic eruptions and other natural disasters worldwide, with fast updates on damage and rescue efforts.
+I invest in pharma and biotech and want news on FDA approvals, weight-loss drugs like Wegovy and Mounjaro, and clinical trial results.
+I am interested in health research and want news on new studies about nutrition, sleep, longevity and exercise.
+I contribute to open source and want news on Linux, programming languages, developer tools and major open-source licence changes.
+I am fascinated by robotics and want news on humanoid robots, Boston Dynamics, Tesla Optimus and warehouse automation.
+I follow quantum computing and want news on new chips from IBM and Google, funding rounds and research breakthroughs.
+I work in marketing and want news on Meta, TikTok, X and YouTube: policy changes, bans, algorithm updates and advertising trends.
+I follow big tech regulation and want news on antitrust cases against Google, Amazon, Apple and Meta and the EU Digital Markets Act.
+I am an Android user and want news on Samsung Galaxy and Google Pixel releases, Android updates and smartphone reviews.
+I work in IT and want news on AWS, Microsoft Azure and Google Cloud, outages, earnings and enterprise AI products.
+I am interested in defence and want news on military technology, drones, defence contractor contracts and rearmament budgets in Europe.
+I follow NATO and want news on its summits, member defence spending, and security in the Baltic states and Eastern Europe.
+I follow UK politics and want news on the Labour government, Reform UK, the NHS, taxes and the cost of living.
+I am interested in French politics and want news on the president, the government's budget, protests and parliamentary votes.
+I follow the German economy and want news on carmakers, energy prices, the coalition government and the far right.
+I follow Turkey and want news on its economy, the lira, politics and foreign policy.
+I follow US tariffs and trade wars: new tariff announcements, retaliation, WTO disputes and effects on supply chains.
+I follow Mexico and want news on US-Mexico trade, cartel violence, migration and the peso.
+I farm wheat and want news on grain prices, crop forecasts, fertiliser costs and food export disruptions.
+I work in the energy industry and want news on solar and wind projects, battery storage, grid problems and energy policy.
+I am interested in nuclear power and want news on new reactors, small modular reactor projects, uranium prices and safety incidents.
+I follow athletics and Olympic sports and want news on records, doping cases, major championships and Olympic preparations.
+I follow golf and want news on PGA Tour and LIV events, major championships, player rankings and Ryder Cup news.
+I follow combat sports and want results, fight announcements and rankings for UFC and boxing.
+I follow women's football and want news on the Women's Super League, the Champions League, transfers and national teams.
+I follow rugby and want results, selection news and tournament updates for the major international and club competitions.
+I follow esports and want news on League of Legends, Counter-Strike and Valorant tournaments, team transfers and prize pools.
+I follow Bundesliga and Serie A and want results, standings, coaching changes and transfer news.
+I run a business in Ukraine's IT sector and want news on the Ukrainian tech industry, startups, grants and mobilisation rules for employers.
+I follow fashion and luxury and want news on LVMH, Kering, fashion weeks, brand launches and luxury demand in China.
+I work in the car industry and want news on Ford, GM, Volkswagen and Toyota, tariffs, recalls and the shift to electric.
+I follow aviation and want news on Boeing and Airbus, plane safety investigations, aircraft orders and airline profits.
+I work in logistics and want news on shipping routes, Red Sea disruptions, freight rates, port strikes and container prices.
+I work at a bank and want news on bank earnings, financial regulation, interest rate policy and fintech competition.
+I follow payments and fintech and want news on Stripe, PayPal, Visa, buy now pay later and digital wallets.
+I want to manage my money better and need news on savings rates, credit card rules, student debt and tax changes.
+I want consumer protection news: product recalls, food safety warnings, data leaks affecting customers and new scams.
+I live in London and want local news on Tube and rail strikes, council decisions, housing and policing.
+I live in New York and want news on city hall, subway problems, local politics, housing and the city's budget.
+I live in California and want news on wildfires, state politics, Silicon Valley, housing costs and water supply.
+I follow the Catholic Church and want news on the Pope, Vatican decisions and church leadership around the world.
+I love science and want news on new discoveries in physics, biology and astronomy, from peer-reviewed research rather than hype.
+I follow AI regulation and want news on the EU AI Act, US AI policy, copyright lawsuits against AI companies and safety debates.
+I live in Florida and want news on hurricanes, severe storms, insurance costs and state politics.
+I follow South Africa and want news on power cuts, ANC and coalition politics, the rand and the economy.
+I follow Southeast Asia and want news on Indonesia, Vietnam and Thailand: politics, trade, manufacturing shifts and ASEAN diplomacy.
+I follow the US housing market and want news on mortgage rates, home sales, builder earnings and rent prices.
+I follow the Korean peninsula and want news on North Korean missile tests, South Korean politics and Seoul-Washington relations.
+I am a parent and want news on school policy, child safety online, social media age limits and screen time research.

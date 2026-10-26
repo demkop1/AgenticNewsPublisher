@@ -81,6 +81,22 @@ class EventsExtraction(BaseModel):
 
 
 class QueryCritique(BaseModel):
+    """Feedback on a query that returned no relevant articles. The critic is only called
+    in that case, so it never decides whether to revise: it always proposes a new query."""
+    feedback: str = Field(
+        description=(
+            "A concise explanation of why the query returned no relevant articles, referencing "
+            "the user's profile and how the closest fetched articles differ from what it asks for."
+        )
+    )
+    revised_query: str = Field(
+        description=(
+            "A replacement natural-language news search query (no Boolean operators) that fixes "
+            "the problem, surrounded by ** the same way the search worker formats it."
+        )
+    )
+
+class QueryCritiqueCurrents(BaseModel):
     verdict: Literal["approve", "revise"] = Field(
         description=(
             "'approve' if the search query is well-aligned with the user profile and is "

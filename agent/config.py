@@ -54,14 +54,17 @@ ARTICLE_SPLITTER = RecursiveCharacterTextSplitter(
     chunk_overlap=150,
 )
 
+import torch
 from sentence_transformers import SentenceTransformer, CrossEncoder
 # CROSSENCODER_MODEL = CrossEncoder("cross-encoder/stsb-roberta-base")
 # Reranker for ordering events by relevance to the user profile (profile = query, event = passage).
-RERANKER_MODEL = CrossEncoder("Qwen/Qwen3-Reranker-0.6B")
+# The model ships with activation_fn=Identity, i.e. raw logits (unbounded, negative for irrelevant);
+# Sigmoid turns them into P("yes") in [0, 1], which is what RELEVANCE_THRESHOLD is compared against.
+RERANKER_MODEL = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", activation_fn=torch.nn.Sigmoid())
 
 # Shared model and client instances
 SEARCH_LLM = ChatOpenAI(model="gpt-5-nano")
-PUBLISHER_LLM = ChatOpenAI(model="gpt-5-nano")
+PUBLISHER_LLM = ChatOpenAI(model="gpt-5-mini")
 JUDGE_LLM = ChatOpenAI(model="gpt-5-nano")  # LLM-as-a-judge in evaluation/
 EMBEDDINGS_MODEL = OpenAIEmbeddings()
 CURRENTS_API_CLIENT = CurrentsAPIClient()

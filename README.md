@@ -6,9 +6,9 @@ An agentic news pipeline built on [LangGraph](https://github.com/langchain-ai/la
 
 The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agents and deterministic steps:
 
-Exported directly from the compiled graph (`agent.graph.graph.get_graph(xray=True).draw_mermaid_png()`), so it always reflects the actual node names and wiring in code rather than a hand-drawn approximation:
+Hand-drawn with matplotlib (`docs/draw_graph_diagram.py`) rather than exported from LangGraph, so update the script when the nodes or wiring change:
 
-<img src="docs/mermaid-diagram.png" alt="Graph structure" width="450">
+<img src="docs/graph-diagram.png" alt="Graph structure" width="450">
 
 Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read. The profile can also be passed per run as `user_profile` in the input state (this is how the evaluations run many profiles); the environment profile is the default. All models and shared clients (LLMs, embeddings, rerankers, news clients) are defined once in `agent/config.py`.
 
@@ -17,13 +17,15 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 **Search Graph** (`agent/subgraph/search_graph.py`, Tavily; CurrentsAPI backup in `search_graph_currents.py`) — find, extract, store:
 
 - **Search** (`search_worker`) — LLM drafts a natural-language Tavily news query (no boolean operators) from the user profile (and, on a retry, the critic's feedback).
-- **Load Published** (`load_published_articles`) — semantic search over the published-articles store for the most recent articles related to the current query, so redundancy can be judged downstream by both the Critic and the writer.
+- **Load Published** (`load_published_articles`) — semantic search over the published-articles store for the most recent articles related to the current query, so the writer can avoid rehashing what has already been covered.
 - **Fetch Articles** (`fetch_articles_worker`) — calls Tavily's news search (articles from the last 7 days, `news_client/tavily_api.py`) with the query and normalizes the results into `Document`s.
-- **Check Relevance** (`check_relevance`) — a reranker model (`RERANKER_MODEL`) scores every fetched article against the search query and keeps those above `RELEVANCE_THRESHOLD`. If at least one article passes, the graph goes straight to Create Events; if none do, it routes to the Critic. The scores of all fetched articles are kept in state (`article_scores`).
-- **Critic** (`criticize`) — LLM judges the fetched articles for relevance, Tavily fit, and (via an explicit `is_redundant` flag) overlap with the recently published articles; routes back to Search to revise the query, forward to Create Events to proceed, or straight to `END` if coverage is still redundant after the retry cap (`MAX_CRITIQUE_ATTEMPTS`) is used up. It is only reached when no article passes Check Relevance.
+- **Check Relevance** (`check_relevance`) — a reranker model (`RERANKER_MODEL`) scores every fetched article against the search query and keeps those above `RELEVANCE_THRESHOLD`. If at least one article passes, the graph goes straight to Create Events; if none do, it routes to the Critic, or ends the graph once the critic retry cap is used up. Scores are in [0, 1] (the reranker output is passed through a sigmoid). The scores of all fetched articles are kept in state (`article_scores`).
+- **Critic** (`criticize`) — only reached when no fetched article passed Check Relevance. It does not decide whether to revise: an LLM looks at the query and the closest articles (with their scores), explains why nothing relevant came back, and proposes a new query, then the graph returns to Search. The number of such retries is capped by `MAX_CRITIQUE_ATTEMPTS`; when it is used up and nothing is relevant, Check Relevance ends the graph instead.
 - **Create Events** (`create_events`) — per-article structured-output LLM call that extracts discrete events (description, type, date, actors, confidence). Outputs are validated and normalized (placeholder dates become null, confidence is clamped to 0–1, malformed events are dropped), so one bad event does not fail the extraction.
 - **Deduplicate** (`deduplicate`) — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster.
 - **Store** (`store_articles_worker`) — chunks and embeds articles into the pgvector store, and upserts events into Postgres.
+
+**Top-level graph** (`agent/graph.py`) runs the search graph, then the publisher graph only if the search produced events; otherwise the run ends without writing anything.
 
 **Publisher Graph** (`agent/subgraph/publisher_graph.py`) — pick & write:
 
@@ -32,7 +34,7 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 
 ## Features
 
-- **Query generation, relevance filtering & self-critique** — an LLM drafts a natural-language search query from the user profile, a reranker scores the fetched articles against it and drops the irrelevant ones, and when none are relevant a second LLM pass critiques the query for relevance and redundancy against what's already been published and revises it (up to a configurable retry cap).
+- **Query generation, relevance filtering & self-critique** — an LLM drafts a natural-language search query from the user profile, a reranker scores the fetched articles against it and drops the irrelevant ones, and when none are relevant a second LLM pass explains why and proposes a new query (up to a configurable retry cap).
 - **Structured event extraction** — each relevant article is passed through a structured-output LLM call that pulls out discrete events (description, type, date, actors, confidence) rather than treating the whole article as one blob. The output schema normalizes unexpected LLM output instead of failing on it.
 - **Similarity-based deduplication** — near-duplicate events (e.g. the same event reported by two sources) are clustered via TF-IDF cosine similarity and collapsed down to the single highest-confidence version. The reason why we chose a keywords-based embedding method like TF-IDF, instead of a semantic one, is because the articles are roughly about the same topic. Therefore the cosine similarity of their semantic embeddings will be almost always high and indistinguishable from duplicates and non-duplicates. 
 - **Two storage backends, chosen deliberately per use case**:
@@ -158,22 +160,23 @@ The `evaluation/` folder runs [LangSmith](https://smith.langchain.com/) experime
 
 ```bash
 python -m evaluation.push_user_preferences_dataset   # make the LangSmith dataset match user_profiles.txt
-python -m evaluation.search_eval                     # search stage only (search -> fetch -> relevance -> critic)
-python -m evaluation.graph_eval                      # the whole graph (search graph, then publisher graph)
+python -m evaluation.search_eval                     # search stage only (search -> fetch -> relevance check -> critic)
+python -m evaluation.graph_eval                      # the whole graph (search graph, then publisher graph if there are events)
 python -m evaluation.baseline_eval                   # the plain LangChain chain baseline, for comparison
 ```
 
 The criteria are shared and live in `evaluation/criteria.py`:
 
 - `has_articles` — whether any articles were retrieved.
-- `relevance` — LLM-as-a-judge (openevals): the fraction of retrieved articles relevant to the profile.
-- `crossencoder_score` — mean reranker score of the fetched articles against the search query.
+- `relevance` — LLM-as-a-judge (openevals): the fraction of retrieved articles relevant to the profile. Gives no score when the query returned no articles.
+- `crossencoder_score` — mean reranker score (0–1) of the fetched articles against the search query.
 - `events_confidence` — mean confidence of the extracted events (graph only; the baseline has no events).
 - `article_quality` — LLM-as-a-judge: relevance to the profile and quality of the generated article.
 
 Notes:
 
 - `search_eval.py` skips event storage, so it is safe to run. `graph_eval.py` runs the full graph and **writes articles, events and published articles to the database `DATABASE_URL` points at** — use a scratch database for it. The baseline never touches the database.
+- Each target also returns its final `state` (serialized by `evaluation/utils.py`) so runs can be inspected in LangSmith; `graph_eval.py` returns the search and publisher states separately.
 - The scripts evaluate only the first few examples by default (`limit=` in the `evaluate(...)` call); remove it for a full run.
 - `agent_baseline/` is a plain LangChain chain (LLM writes the search query → Tavily search → LLM writes the article) with no filtering, critic, events, or storage, and no imports from `agent/`.
 - Example IDs in the dataset are derived from `_ID_NAMESPACE` in the push script. LangSmith keeps the IDs of deleted examples reserved, so if you delete examples by hand and a re-push fails with a 409, change that namespace UUID.
@@ -182,13 +185,13 @@ Notes:
 
 ```
 agent/
-  graph.py              # top-level graph: search_graph -> publisher_graph
+  graph.py              # top-level graph: search_graph -> publisher_graph (only if events were found)
   state.py              # shared NewsState
   config.py             # user profile loading, thresholds, id namespaces, shared LLMs/rerankers/clients
   prompts.py            # every prompt used by the pipeline
   structured_outputs.py # pydantic schemas for structured LLM outputs (with output normalization)
   subgraph/
-    search_graph.py     # search -> fetch (Tavily) -> check relevance -> critique -> extract events -> dedupe -> store
+    search_graph.py     # search -> fetch (Tavily) -> check relevance (-> critique -> search again) -> extract events -> dedupe -> store
     search_graph_currents.py  # backup: same pipeline fetching from CurrentsAPI (self-contained)
     publisher_graph.py  # rerank events -> generate article
 agent_baseline/         # baseline: a plain LangChain chain (search query -> Tavily -> article), no imports from agent/
@@ -198,6 +201,7 @@ evaluation/
   criteria.py           # shared evaluators (has_articles, relevance, crossencoder_score, events_confidence, article_quality)
   search_eval.py        # LangSmith experiment: search stage
   graph_eval.py         # LangSmith experiment: whole graph
+  utils.py              # serialize_state: JSON-safe state for eval outputs
   baseline_eval.py      # LangSmith experiment: baseline chain
   push_user_preferences_dataset.py  # syncs data/user_profiles.txt to the LangSmith dataset
   data/user_profiles.txt  # 100 user profiles for the experiments

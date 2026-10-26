@@ -59,6 +59,7 @@ PIPELINE = [
     ("search_worker", "Search", "search"),
     ("load_published_articles", "Load Published", "search"),
     ("fetch_articles_worker", "Fetch Articles", "search"),
+    ("check_relevance", "Check Relevance", "search"),
     ("criticize", "Critic", "search"),
     ("create_events", "Create Events", "search"),
     ("deduplicate", "Deduplicate", "search"),
@@ -89,6 +90,7 @@ class Dashboard:
     current: str | None = None
     passes: dict = field(default_factory=dict)
     events: list = field(default_factory=list)  # event descriptions of this check
+    no_relevant: bool = False              # this check ended with no relevant articles
     log: deque = field(default_factory=lambda: deque(maxlen=200))
     articles: list = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -100,6 +102,7 @@ class Dashboard:
     def reset_run(self) -> None:
         with self.lock:
             self.done, self.current, self.passes, self.events = set(), PIPELINE[0][0], {}, []
+            self.no_relevant = False
 
 
 def short(value, limit: int = 100) -> str:
@@ -116,6 +119,15 @@ def narrate(dash: Dashboard, node: str, update: dict) -> None:
         dash.say(f"Loaded {len(update.get('published_articles') or [])} previously published article(s) for context", "blue")
     elif node == "fetch_articles_worker":
         dash.say(f"Fetched {len(update.get('current_articles') or [])} article(s) from the news API", "blue")
+    elif node == "check_relevance":
+        kept = len(update.get("current_articles") or [])
+        scores = update.get("article_scores")
+        if kept:
+            dash.say(f"{kept} of {len(scores or [])} article(s) passed the relevance check", "green")
+        elif "current_articles" in update:
+            dash.say("No article passed the relevance check and the critic's retries are used up", "bold yellow")
+        elif scores is not None:
+            dash.say("No article passed the relevance check; asking the critic for a new query", "yellow")
     elif node == "criticize":
         dash.say(f"Critic reviewed coverage (pass {update.get('critique_attempts', '?')})", "yellow")
     elif node == "create_events":
@@ -164,6 +176,14 @@ def run_check(client, dash: Dashboard) -> str | None:
                     dash.done.add(node)
                     dash.passes[node] = dash.passes.get(node, 0) + 1
                     nxt = NODE_INDEX[node] + 1
+                    if node == "check_relevance":
+                        update_dict = update if isinstance(update, dict) else {}
+                        if update_dict.get("current_articles"):
+                            nxt = NODE_INDEX["create_events"]
+                        elif "current_articles" in update_dict:
+                            # emptied list: no relevant articles and critic attempts exhausted, graph ended
+                            dash.no_relevant = True
+                            nxt = len(PIPELINE)
                     if node == "criticize" and isinstance(update, dict) and "agent_chats" in update:
                         nxt = NODE_INDEX["search_worker"]  # critic asked for a revised query
                     dash.current = PIPELINE[nxt][0] if nxt < len(PIPELINE) else None
@@ -178,7 +198,11 @@ def run_check(client, dash: Dashboard) -> str | None:
                     for e in events
                 ]
 
-    if article is None:
+    with dash.lock:
+        # The publisher stage is skipped when the search produced no events.
+        if article is None and "events_reranker" not in dash.done:
+            dash.no_relevant = True
+    if article is None and not dash.no_relevant:
         state = client.threads.get_state(thread["thread_id"])
         article = state["values"].get("generated_article")
     return article
@@ -200,6 +224,8 @@ def worker(dash: Dashboard, stop: threading.Event) -> None:
                 with dash.lock:
                     dash.articles.append(Article(len(dash.articles) + 1, time.strftime("%H:%M"), article.strip()))
                 dash.say("New article published to the front page", "bold green")
+            elif dash.no_relevant:
+                dash.say("No relevant articles or events found; nothing to publish", "bold yellow")
             else:
                 dash.say("Nothing new worth publishing this time", "yellow")
         with dash.lock:
@@ -262,6 +288,8 @@ def render_article(dash: Dashboard) -> Panel:
         articles = list(dash.articles)
     if not articles:
         waiting = "Writer agent is on it..." if dash.status == "running" else "No articles yet."
+        if dash.no_relevant and dash.status != "running":
+            waiting = "No relevant articles found in the last check."
         return Panel(Text(waiting, style="dim italic"), title="Latest article", border_style="green", padding=(1, 2))
     latest = articles[-1]
     return Panel(

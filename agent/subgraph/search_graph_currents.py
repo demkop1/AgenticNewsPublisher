@@ -19,21 +19,21 @@ import agent.config as config
 from agent.config import MAX_CRITIQUE_ATTEMPTS, EVENT_ID_NAMESPACE, DUPLICATE_SIMILARITY_THRESHOLD
 from agent.prompts import (
     STRING_EXTRACTOR,
-    CRITIC_PROMPT_TEMPLATE,
-    build_search_system_prompt,
-    build_critic_system_prompt,
+    CRITIC_PROMPT_TEMPLATE_CURRENTS,
+    build_search_system_prompt_currents,
+    build_critic_system_prompt_currents,
     EVENTS_EXTRACTION_SYSTEM_PROMPT,
     EVENTS_EXTRACTION_PROMPT_TEMPLATE,
 )
 from agent.state import NewsState
-from agent.structured_outputs import QueryCritique, Event, EventsExtraction
+from agent.structured_outputs import QueryCritiqueCurrents, Event, EventsExtraction
 from storage.articles_vectorstore import get_news_store, get_published_articles_store
 from storage.events_store import get_events_store
 
 
 def search_worker(state: NewsState) -> NewsState:
     chat_history = state.get("agent_chats", {}).get("search_worker", [])
-    messages = [build_search_system_prompt(state.get("user_profile") or config.USER_PROFILE), *[m for m in chat_history]]
+    messages = [build_search_system_prompt_currents(state.get("user_profile") or config.USER_PROFILE), *[m for m in chat_history]]
 
     response = config.SEARCH_LLM.invoke(messages)
     try:
@@ -116,14 +116,14 @@ def criticize(state: NewsState) -> Command[Literal["search_worker", "create_even
         "revise": "search_worker"
     }
 
-    structured_llm = config.SEARCH_LLM.with_structured_output(QueryCritique)
+    structured_llm = config.SEARCH_LLM.with_structured_output(QueryCritiqueCurrents)
 
     articles = state.get("current_articles", [])
     recent_articles = _most_recent(articles, limit=3)
     published_articles = _most_recent(state.get("published_articles", []), limit=5)
 
     chat_history = state.get("agent_chats", {}).get("criticize", [])
-    formatted_prompt = CRITIC_PROMPT_TEMPLATE.format(
+    formatted_prompt = CRITIC_PROMPT_TEMPLATE_CURRENTS.format(
         search_query=state.get("search_query"),
         num_fetched=len(articles),
         articles=_format_articles(recent_articles),
@@ -131,12 +131,12 @@ def criticize(state: NewsState) -> Command[Literal["search_worker", "create_even
     )
 
     messages = [
-        build_critic_system_prompt(state.get("user_profile") or config.USER_PROFILE),
+        build_critic_system_prompt_currents(state.get("user_profile") or config.USER_PROFILE),
         *[m for m in chat_history],
         formatted_prompt,
     ]
 
-    critique: QueryCritique = structured_llm.invoke(messages)
+    critique: QueryCritiqueCurrents = structured_llm.invoke(messages)
     attempts = state.get("critique_attempts", 0) + 1
 
     should_revise = (

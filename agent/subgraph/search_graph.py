@@ -19,7 +19,6 @@ from langgraph.types import Command
 
 import agent.config as config
 from agent.config import (
-    MAX_CRITIQUE_ATTEMPTS,
     RELEVANCE_THRESHOLD,
     EVENT_ID_NAMESPACE,
     DUPLICATE_SIMILARITY_THRESHOLD,
@@ -29,8 +28,6 @@ from agent.prompts import (
     CRITIC_PROMPT_TEMPLATE,
     build_search_system_prompt,
     build_critic_system_prompt,
-    build_tavily_search_system_prompt,
-    build_tavily_critic_system_prompt,
     EVENTS_EXTRACTION_SYSTEM_PROMPT,
     EVENTS_EXTRACTION_PROMPT_TEMPLATE,
 )
@@ -40,13 +37,12 @@ from storage.articles_vectorstore import get_news_store, get_published_articles_
 from storage.events_store import get_events_store
 from news_client.tavily_api import TavilyNewsClient
 
-tavily_client = TavilyNewsClient()
-
+client = TavilyNewsClient()
 
 def search_worker(state: NewsState) -> NewsState:
     chat_history = state.get("agent_chats", {}).get("search_worker", [])
     messages = [
-        build_tavily_search_system_prompt(state.get("user_profile") or config.USER_PROFILE),
+        build_search_system_prompt(state.get("user_profile") or config.USER_PROFILE),
         *chat_history,
     ]
 
@@ -71,7 +67,7 @@ def fetch_articles_worker(state: NewsState) -> NewsState:
 
     articles = [
         _article_to_document(article_id=_article_id(a), **a)
-        for a in tavily_client.search(state["search_query"])
+        for a in client.search(state["search_query"])
     ]
 
     return {"current_articles": articles, "articles_fetched": True}
@@ -79,70 +75,62 @@ def fetch_articles_worker(state: NewsState) -> NewsState:
 def check_relevance(
     state: NewsState, threshold: float = RELEVANCE_THRESHOLD, max_chars: int = 500
 ) -> Command[Literal["criticize", "create_events"]]:
-    """Keep only the fetched articles whose cross-encoder relevance score against the
-    search query is greater than `threshold`. If none are left, go to the critic to
-    revise the query; otherwise go straight to event extraction.
+    """Keep only the fetched articles whose reranker relevance score against the search
+    query is greater than `threshold`, then route:
+    - some articles left: go straight to event extraction;
+    - none left and the critic's retries are used up: end the graph;
+    - none left otherwise: go to the critic to propose a new query.
 
     Bind a different threshold with functools.partial(check_relevance, threshold=...).
     """
     articles = state.get("current_articles", [])
-    if not articles:
-        return Command(goto="criticize", update={"current_articles": [], "article_scores": []})
-
     pairs = [(state["search_query"], a.page_content[:max_chars]) for a in articles]
-    scores = config.RERANKER_MODEL.predict(pairs)
+    scores = [float(x) for x in config.RERANKER_MODEL.predict(pairs)] if pairs else []
 
     relevant = []
     for article, score in zip(articles, scores):
-        article.metadata["relevance_score"] = float(score)
+        article.metadata["relevance_score"] = score
         if score > threshold:
             relevant.append(article)
 
-    return Command(
-        goto="create_events" if relevant else "criticize",
-        update={"current_articles": relevant, "article_scores": [float(x) for x in scores]},
-    )
+    if relevant:
+        return Command(goto="create_events", update={"current_articles": relevant, "article_scores": scores})
+
+    if state.get("critique_attempts", 0) >= config.MAX_CRITIQUE_ATTEMPTS:
+        return Command(goto=END, update={"current_articles": [], "article_scores": scores})
+
+    # Keep the rejected articles in state so the critic can see what the query returned.
+    return Command(goto="criticize", update={"article_scores": scores})
 
 
-def criticize(state: NewsState) -> Command[Literal["search_worker", "create_events"]]:
+def criticize(state: NewsState, n_shown: int = 3) -> Command[Literal["search_worker"]]:
+    """Called only when no fetched article was relevant: explain why and suggest a new query."""
     structured_llm = config.SEARCH_LLM.with_structured_output(QueryCritique)
 
     articles = state.get("current_articles", [])
-    recent_articles = _most_recent(articles, limit=5)
-    published_articles = _most_recent(state.get("published_articles", []), limit=5)
+    closest = sorted(articles, key=lambda a: a.metadata.get("relevance_score", 0.0), reverse=True)[:n_shown]
 
     chat_history = state.get("agent_chats", {}).get("criticize", [])
     formatted_prompt = CRITIC_PROMPT_TEMPLATE.format(
         search_query=state.get("search_query"),
         num_fetched=len(articles),
-        articles=_format_articles(recent_articles),
-        published_articles=_format_articles(published_articles),
+        threshold=RELEVANCE_THRESHOLD,
+        num_shown=len(closest),
+        articles=_format_scored_articles(closest),
     )
 
     messages = [
-        build_tavily_critic_system_prompt(state.get("user_profile") or config.USER_PROFILE),
+        build_critic_system_prompt(state.get("user_profile") or config.USER_PROFILE),
         *chat_history,
         formatted_prompt,
     ]
 
     critique: QueryCritique = structured_llm.invoke(messages)
-    attempts = state.get("critique_attempts", 0) + 1
-
-    should_revise = (
-        (critique.verdict == "revise" or critique.is_redundant)
-        and critique.revised_query
-    )
-
-    if critique.is_redundant and attempts >= MAX_CRITIQUE_ATTEMPTS:
-        return Command(goto=END, update={"critique_attempts": attempts})
-
-    if not should_revise or attempts >= MAX_CRITIQUE_ATTEMPTS:
-        return Command(goto="create_events", update={"critique_attempts": attempts})
 
     return Command(
         goto="search_worker",
         update={
-            "critique_attempts": attempts,
+            "critique_attempts": state.get("critique_attempts", 0) + 1,
             "agent_chats": {
                 "search_worker": [
                     HumanMessage(
@@ -152,7 +140,7 @@ def criticize(state: NewsState) -> Command[Literal["search_worker", "create_even
                 ],
                 "criticize": [
                     formatted_prompt,
-                    AIMessage(f"Verdict: {critique.verdict}, Feedback: {critique.feedback}, Suggested Query: {critique.revised_query}"),
+                    AIMessage(f"Feedback: {critique.feedback}, Suggested Query: {critique.revised_query}"),
                 ],
             },
         },
@@ -167,6 +155,14 @@ def load_published_articles(state: NewsState) -> NewsState:
     published = store.similarity_search( state["search_query"], k=config.N_FETCHED_PUBLISHED_ARTICLES )
 
     return {"published_articles": published}
+
+def _format_scored_articles(articles: list[Document]) -> str:
+    if not articles:
+        return "(none)"
+    return "\n\n".join(
+        f"- [score {a.metadata.get('relevance_score', 0.0):.2f}] {a.page_content[:500]}\n  url: {a.metadata.get('url')}"
+        for a in articles
+    )
 
 def _format_articles(articles: list[Document]) -> str:
     if not articles:
@@ -307,7 +303,7 @@ builder.add_node(
     partial(check_relevance, threshold=RELEVANCE_THRESHOLD),
     destinations=("criticize", "create_events"),
 )
-builder.add_node("criticize", criticize, destinations=("search_worker", "create_events"))
+builder.add_node("criticize", criticize, destinations=("search_worker",))
 builder.add_node("create_events", create_events)
 builder.add_node("deduplicate", deduplicate)
 builder.add_node("store_articles_worker", store_articles_worker)

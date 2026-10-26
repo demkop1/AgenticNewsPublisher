@@ -8,7 +8,6 @@ __pycache__/
 .mypy_cache/
 
 telegram_client/
-evaluation/
 backend/
 
 agent/search_graph_currents.py
