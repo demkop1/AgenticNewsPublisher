@@ -6,8 +6,6 @@ An agentic news pipeline built on [LangGraph](https://github.com/langchain-ai/la
 
 The graph is composed of two LangGraph subgraphs, each a mix of LLM-driven agents and deterministic steps:
 
-Hand-drawn with matplotlib (`docs/draw_graph_diagram.py`) rather than exported from LangGraph, so update the script when the nodes or wiring change:
-
 <img src="docs/graph-diagram.png" alt="Graph structure" width="450">
 
 Everything shares one `NewsState` (`agent/state.py`) as it flows through the graph, and every LLM call is grounded in a single user profile (`user_profile.txt` or `USER_PROFILE` in `agent/config.py`) so the whole pipeline stays personalized to what that user actually wants to read. The profile can also be passed per run as `user_profile` in the input state (this is how the evaluations run many profiles); the environment profile is the default. All models and shared clients (LLMs, embeddings, rerankers, news clients) are defined once in `agent/config.py`.
@@ -171,7 +169,8 @@ The criteria are shared and live in `evaluation/criteria.py`:
 - `relevance` — LLM-as-a-judge (openevals): the fraction of retrieved articles relevant to the profile. Gives no score when the query returned no articles.
 - `crossencoder_score` — mean reranker score (0–1) of the fetched articles against the search query.
 - `events_confidence` — mean confidence of the extracted events (graph only; the baseline has no events).
-- `article_quality` — LLM-as-a-judge: relevance to the profile and quality of the generated article.
+- `article_quality` — LLM-as-a-judge: relevance to the profile and quality of the generated article; the judge also sees the events the writer was given (the articles, for the baseline).
+- `article_factuality` — LLM-as-a-judge: the fraction of the article's claims supported by those events (or articles), with contradictions penalised.
 
 Notes:
 
@@ -198,7 +197,7 @@ agent_baseline/         # baseline: a plain LangChain chain (search query -> Tav
   chain.py              # the chain
   config.py  prompts.py  state.py
 evaluation/
-  criteria.py           # shared evaluators (has_articles, relevance, crossencoder_score, events_confidence, article_quality)
+  criteria.py           # shared evaluators (has_articles, relevance, crossencoder_score, events_confidence, article_quality, article_factuality)
   search_eval.py        # LangSmith experiment: search stage
   graph_eval.py         # LangSmith experiment: whole graph
   utils.py              # serialize_state: JSON-safe state for eval outputs

@@ -11,3 +11,8 @@ telegram_client/
 backend/
 
 agent/search_graph_currents.py
+# Local-only
+agent/subgraph/search_graph_currents.py
+telegram_demo/
+news_client/current_api.py
+news_client/newsapi_client.py

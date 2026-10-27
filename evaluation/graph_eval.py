@@ -6,12 +6,20 @@ dotenv.load_dotenv()
 from agent.subgraph.search_graph import search_graph
 from agent.subgraph.publisher_graph import publisher_graph
 from evaluation.utils import serialize_state
-from evaluation.criteria import has_articles, relevance, events_confidence, crossencoder_score, article_quality
+from evaluation.criteria import has_articles, relevance, events_confidence, crossencoder_score, article_quality, article_factuality
 
 DATASET_NAME = "news-user-preferences"
 MAX_CONCURRENCY = 5
 N_ARTICLES_TO_JUDGE = 5
 ARTICLE_CHARS_FOR_JUDGE = 500
+
+
+def _describe_event(event) -> str:
+    m = event.metadata
+    return (
+        f"{event.page_content} (type={m.get('event_type')}, date={m.get('event_date')}, "
+        f"actors={m.get('actors')}, source={m.get('source_url')})"
+    )
 
 
 def target(inputs: dict) -> dict:
@@ -32,6 +40,8 @@ def target(inputs: dict) -> dict:
         "articles_url": [a.metadata.get("url") for a in articles],
         "event_confidences": [e.metadata.get("confidence", 0.0) for e in events],
         "generated_article": publisher_state.get("generated_article"),
+        # The events the writer was given (the publisher stage's reranked top events), for the judges.
+        "sources": [_describe_event(e) for e in publisher_state.get("events", [])],
         "state": {"search": serialize_state(search_state), "publisher": serialize_state(publisher_state)},
     }
 
@@ -41,7 +51,7 @@ if __name__ == "__main__":
     evaluate(
         target,
         data=client.list_examples(dataset_name=DATASET_NAME, limit=10),  # drop limit for the full run
-        evaluators=[has_articles, relevance, events_confidence, crossencoder_score, article_quality],
+        evaluators=[has_articles, relevance, events_confidence, crossencoder_score, article_quality, article_factuality],
         experiment_prefix="graph-agent-tavily",
         max_concurrency=MAX_CONCURRENCY,
         client=client,

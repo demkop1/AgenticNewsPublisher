@@ -6,7 +6,7 @@ dotenv.load_dotenv()
 from agent.config import RERANKER_MODEL
 from agent_baseline.chain import chain
 from evaluation.utils import serialize_state
-from evaluation.criteria import has_articles, relevance, crossencoder_score, article_quality
+from evaluation.criteria import has_articles, relevance, crossencoder_score, article_quality, article_factuality
 
 DATASET_NAME = "news-user-preferences"
 MAX_CONCURRENCY = 5
@@ -31,6 +31,8 @@ def target(inputs: dict) -> dict:
         "article_scores": [float(s) for s in scores],
         "articles_url": [a.metadata.get("url") for a in articles],
         "generated_article": state.get("generated_article"),
+        # The baseline writer reads the articles directly, so they are its sources for the judges.
+        "sources": [a.page_content for a in articles],
         "state": serialize_state(state),
     }
 
@@ -41,7 +43,7 @@ if __name__ == "__main__":
         target,
         data=client.list_examples(dataset_name=DATASET_NAME, limit=10),  # drop limit for the full run
         # No events_confidence: the baseline chain does not extract events.
-        evaluators=[has_articles, relevance, crossencoder_score, article_quality],
+        evaluators=[has_articles, relevance, crossencoder_score, article_quality, article_factuality],
         experiment_prefix="baseline-chain-tavily",
         max_concurrency=MAX_CONCURRENCY,
         client=client,

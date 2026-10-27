@@ -24,7 +24,7 @@ class TavilyNewsClient:
         url = a.get("url") or ""
         return {
             "title": a.get("title", ""),
-            "content": a.get("content", ""),
+            "content": a.get("raw_content") or a.get("content", ""),
             "url": url,
             "source": {"name": url.split("/")[2] if url.count("/") >= 2 else "Tavily"},
             "author": None,
@@ -36,7 +36,7 @@ class TavilyNewsClient:
         }
 
     def search(self, query: str, start_date: datetime.date | None = None, max_results: int = 20,
-               search_depth: str = "basic") -> list:
+               search_depth: str = "basic", include_raw_content: str|bool = "markdown") -> list:
         """Search news published on or after `start_date` (default: 7 days ago, UTC) that matches
         a natural-language query. Returns a list of article dicts."""
         start_date = start_date or (
@@ -48,10 +48,12 @@ class TavilyNewsClient:
             start_date=start_date.isoformat(),
             max_results=max_results,
             search_depth=search_depth,
+            include_raw_content=include_raw_content,
         )
         return [self._normalize_article(a) for a in response.get("results", [])]
 
 
 if __name__ == "__main__":
     for a in TavilyNewsClient().search("latest developments in the war in Ukraine")[:5]:
-        print(f"- {a['title']} ({a['source']['name']}) - {a['publishedAt']}")
+        print("="*50)
+        print(f"- {a['title']} {a.get("raw_content") or a.get("content", "")} ({a['source']['name']}) - {a['publishedAt']}")

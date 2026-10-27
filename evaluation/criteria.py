@@ -77,7 +77,8 @@ def crossencoder_score(outputs: dict) -> dict:
 ARTICLE_QUALITY_PROMPT = """
 You are a strict editor evaluating a news article written for a channel. The input is the
 user profile describing what the channel wants to publish. The output is the generated
-article. Judge it on both of these:
+article. The events the writer was given are listed in the sources, so you can see what
+material was available. Judge the article on both of these:
 
 1. Relevance - the article is about the topics the profile cares about, matches its region,
    audience, angle and tone, and respects any exclusions it states.
@@ -93,6 +94,10 @@ and for quality before the final score.
 <input>
 {inputs}
 </input>
+
+<sources>
+{sources}
+</sources>
 
 <output>
 {outputs}
@@ -114,4 +119,53 @@ def article_quality(inputs: dict, outputs: dict) -> dict:
     article = (outputs.get("generated_article") or "").strip()
     if not article:
         return {"key": "article_quality", "score": None, "comment": "No article generated."}
-    return _article_judge(inputs=inputs["user_profile"], outputs=article)
+    return _article_judge(inputs=inputs["user_profile"], outputs=article, sources=_sources(outputs))
+
+
+def _sources(outputs: dict) -> str:
+    """The material the writer was given (events for the graph, articles for the baseline)."""
+    return "\n\n".join(f"[{i}] {s}" for i, s in enumerate(outputs.get("sources") or [])) or "(none)"
+
+
+ARTICLE_FACTUALITY_PROMPT = """
+You are a strict fact-checker. The sources are the events the writer was given; the output is
+the news article it wrote from them. Check every factual claim in the article (who did what,
+when, where, numbers, quotes, causes) against the sources. A claim is supported only if the
+sources state or clearly imply it. Details that appear nowhere in the sources - invented
+names, figures, dates, quotes, or background presented as fact - are unsupported, even if they
+happen to be true. Wording that is vaguer than the sources is fine; wording that contradicts
+them is a serious error.
+
+Score the fraction of the article's factual claims that are supported by the sources, as a
+number between 0 and 1, lowering it further for contradictions. If the sources are empty
+("(none)"), any concrete claim is unsupported. In your reasoning, list the unsupported or
+contradicted claims (or say there are none) before the final score.
+
+<input>
+{inputs}
+</input>
+
+<sources>
+{sources}
+</sources>
+
+<output>
+{outputs}
+</output>
+"""
+
+_factuality_judge = create_llm_as_judge(
+    prompt=ARTICLE_FACTUALITY_PROMPT,
+    judge=JUDGE_LLM,
+    feedback_key="article_factuality",
+    continuous=True,
+    structured_output_kwargs=STRICT_JSON_SCHEMA,
+)
+
+
+def article_factuality(inputs: dict, outputs: dict) -> dict:
+    """LLM-as-a-judge: fraction of the article's claims supported by the events/articles it was written from."""
+    article = (outputs.get("generated_article") or "").strip()
+    if not article:
+        return {"key": "article_factuality", "score": None, "comment": "No article generated."}
+    return _factuality_judge(inputs=inputs["user_profile"], outputs=article, sources=_sources(outputs))
