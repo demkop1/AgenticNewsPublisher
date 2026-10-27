@@ -48,6 +48,12 @@ class EventsPostgresStore:
                 """
             )
 
+    def all_descriptions(self) -> list[str]:
+        """The description (content) of every stored event."""
+        with self._conn.cursor() as cur:
+            cur.execute(f"SELECT content FROM {self.table_name}")
+            return [content for (content,) in cur.fetchall()]
+
     def upsert_events(self, events: Iterable[Document]) -> list[str]:
         events = list(events)
         if not events:

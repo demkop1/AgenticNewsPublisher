@@ -20,7 +20,7 @@ Everything shares one `NewsState` (`agent/state.py`) as it flows through the gra
 - **Check Relevance** (`check_relevance`) — a reranker model (`RERANKER_MODEL`) scores every fetched article against the search query and keeps those above `RELEVANCE_THRESHOLD`. If at least one article passes, the graph goes straight to Create Events; if none do, it routes to the Critic, or ends the graph once the critic retry cap is used up. Scores are in [0, 1] (the reranker output is passed through a sigmoid). The scores of all fetched articles are kept in state (`article_scores`).
 - **Critic** (`criticize`) — only reached when no fetched article passed Check Relevance. It does not decide whether to revise: an LLM looks at the query and the closest articles (with their scores), explains why nothing relevant came back, and proposes a new query, then the graph returns to Search. The number of such retries is capped by `MAX_CRITIQUE_ATTEMPTS`; when it is used up and nothing is relevant, Check Relevance ends the graph instead.
 - **Create Events** (`create_events`) — per-article structured-output LLM call that extracts discrete events (description, type, date, actors, confidence). Outputs are validated and normalized (placeholder dates become null, confidence is clamped to 0–1, malformed events are dropped), so one bad event does not fail the extraction.
-- **Deduplicate** (`deduplicate`) — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster.
+- **Deduplicate** (`deduplicate`) — TF-IDF cosine-similarity clustering of events extracted in this run; keeps only the highest-confidence event per cluster, then drops the survivors that are highly similar to an event already stored in the database.
 - **Store** (`store_articles_worker`) — chunks and embeds articles into the pgvector store, and upserts events into Postgres.
 
 **Top-level graph** (`agent/graph.py`) runs the search graph, then the publisher graph only if the search produced events; otherwise the run ends without writing anything.
@@ -179,6 +179,36 @@ Notes:
 - The scripts evaluate only the first few examples by default (`limit=` in the `evaluate(...)` call); remove it for a full run.
 - `agent_baseline/` is a plain LangChain chain (LLM writes the search query → Tavily search → LLM writes the article) with no filtering, critic, events, or storage, and no imports from `agent/`.
 - Example IDs in the dataset are derived from `_ID_NAMESPACE` in the push script. LangSmith keeps the IDs of deleted examples reserved, so if you delete examples by hand and a re-push fails with a 409, change that namespace UUID.
+
+### Results
+
+One `graph_eval.py` experiment (`graph-agent-tavily`, 10 user profiles), as shown in LangSmith. The delta column is the change LangSmith reports against the comparison experiment, the baseline chain (`baseline_eval.py`).
+
+| Metric | Graph (mean of 10 runs) | Change vs. comparison |
+|---|---|---|
+| `article_factuality` | 0.89 | −0.05 |
+| `article_quality` | 0.80 | +0.04 |
+| `article_relevance` | 0.86 | −0.01 |
+| `crossencoder_score` | 0.26 | −0.38 |
+| `events_confidence` | 0.77 | n/a |
+| `has_articles` | 1.00 | ±0.00 |
+
+| Cost and speed | Value | Change vs. comparison |
+|---|---|---|
+| Latency P50 | 103.03 s | +57.656 s |
+| Latency P99 | 187.74 s | +127.702 s |
+| Error rate | 0% | ±0% |
+| Total tokens | 271,162 (133,914 input, 137,248 output) | n/a |
+| Total cost | $0.0799 ($0.0095 input, $0.0705 output) | n/a |
+
+What the figures show:
+
+- **Quality and grounding:** the generated articles are mostly well grounded in their events (`article_factuality` 0.89) and score 0.80 for relevance to the profile and writing quality. Factuality and relevance are lower than in the comparison run by 0.05 and 0.01, while quality is 0.04 higher. All three differences are small for 10 profiles.
+- **Retrieval relevance:** the LLM judge rates 0.86 of the retrieved articles as relevant (`article_relevance`). Per run it is usually 1.00, with a few exceptions such as 0.25 and 0.50 on two profiles, so those low runs pull the mean down. `has_articles` is 1.00, so every query returned articles.
+- **Cross-encoder score:** the mean is low (0.26) because it averages the reranker score of every fetched article, including the ones `check_relevance` drops, not only the kept ones. It is 0.38 below the comparison run, which has no relevance filter. A low mean does not mean the kept articles were irrelevant.
+- **Events:** the extracted events have a mean confidence of 0.77. The comparison run has no events, so it reports no figure.
+- **Empty runs:** in one of the 10 runs the writer did not run (no events were produced), so that run has no `article_factuality`, `article_quality` or `events_confidence` score. Runs with nothing to score are left out of the means.
+- **Cost and speed:** the full graph is slower than the comparison run by about 58 s at the median and 128 s at P99, most likely because of the extra relevance check, event extraction and reranking steps. It had no errors, and the 10 runs cost about $0.08 in total, nearly all of it output tokens.
 
 ## Project structure
 

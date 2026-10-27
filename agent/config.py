@@ -42,6 +42,7 @@ MAX_CRITIQUE_ATTEMPTS = 1
 N_FETCHED_PUBLISHED_ARTICLES = 5
 
 DUPLICATE_SIMILARITY_THRESHOLD = 0.3
+DUPLICATE_TF_IDF_SIMILARITY_THRESHOLD = 0.6
 
 # Minimum cross-encoder relevance score (article vs. search query) an article needs to be kept by check_relevance.
 RELEVANCE_THRESHOLD = 0.3

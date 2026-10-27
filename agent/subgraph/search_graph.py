@@ -232,10 +232,23 @@ def create_events(state: NewsState) -> NewsState:
 
     return {"events": event_documents}
 
+def _drop_stored_duplicates(events: list[Document]) -> list[Document]:
+    """Drop the events whose description is highly similar (TF-IDF cosine similarity above
+    DUPLICATE_SIMILARITY_THRESHOLD) to an event already stored in the database."""
+    stored_texts = get_events_store().all_descriptions()
+    if not events or not stored_texts:
+        return events
+
+    new_texts = [event.page_content for event in events]
+    vectorizer = TfidfVectorizer().fit(stored_texts + new_texts)
+    similarity_scores = (vectorizer.transform(new_texts) @ vectorizer.transform(stored_texts).T).toarray()  # (N_new, N_stored)
+
+    return [event for event, row in zip(events, similarity_scores) if row.max() <= DUPLICATE_TF_IDF_SIMILARITY_THRESHOLD]
+
 def deduplicate(state: NewsState) -> NewsState:
     events: list[Document] = state["events"]
     if len(events) < 2:
-        return {}
+        return {"events": _drop_stored_duplicates(events)}
 
     event_texts = [event.page_content for event in events]
 
@@ -277,7 +290,8 @@ def deduplicate(state: NewsState) -> NewsState:
     # Within each duplicate cluster, the event with the highest confidence prevails.
     survivor_indices = sorted(max(indices, key=confidence) for indices in clusters.values())
 
-    return {"events": [events[i] for i in survivor_indices]}
+    # Finally, compare the survivors with the events already in the database.
+    return {"events": _drop_stored_duplicates([events[i] for i in survivor_indices])}
 
 def store_articles_worker(state: NewsState) -> NewsState:
     articles_store = get_news_store(embeddings=config.EMBEDDINGS_MODEL)
