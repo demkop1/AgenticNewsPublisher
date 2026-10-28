@@ -182,37 +182,38 @@ Notes:
 
 ### Results
 
-One `graph_eval.py` experiment (`graph-agent-tavily-38901af2`) over 10 user profiles, as shown in LangSmith.
+Two LangSmith experiments over the same 10 user profiles: the full graph (`graph_eval.py`, `graph-agent-tavily-38901af2`) and the baseline chain (`baseline_eval.py`, `baseline-chain-tavily-4719ddee`).
 
-| Metric | Mean of 10 runs |
-|---|---|
-| `article_factuality` | 0.89 |
-| `article_quality` | 0.80 |
-| `article_relevance` | 0.86 |
-| `crossencoder_score` | 0.26 |
-| `events_confidence` | 0.77 |
-| `has_articles` | 1.00 |
+| Metric (mean of 10 runs) | Graph | Baseline | Graph higher / lower in |
+|---|---|---|---|
+| `article_factuality` | 0.89 | 0.86 | 3 / 2 runs |
+| `article_quality` | 0.80 | 0.51 | 9 / 0 runs |
+| `article_relevance` | 0.86 | 0.66 | 5 / 3 runs |
+| `crossencoder_score` | 0.26 | 0.30 | 6 / 4 runs |
+| `events_confidence` | 0.77 | n/a | n/a |
+| `has_articles` | 1.00 | 1.00 | 0 / 0 runs |
 
-| Cost and speed | Value |
-|---|---|
-| Latency P50 | 103.03 s |
-| Latency P99 | 187.74 s |
-| Error rate | 0% |
-| Total tokens | 271,162 (133,914 input, 137,248 output) |
-| Total cost | $0.0799 ($0.0095 input, $0.0705 output) |
+| Cost and speed | Graph | Baseline |
+|---|---|---|
+| Latency P50 | 103.03 s | 37.15 s |
+| Latency P99 | 187.74 s | 47.23 s |
+| Error rate | 0% | 0% |
+| Total tokens | 271,162 (133,914 input, 137,248 output) | 59,743 (26,736 input, 33,007 output) |
+| Total cost | $0.0799 ($0.0095 input, $0.0705 output) | $0.0146 ($0.0014 input, $0.0133 output) |
 
 What the figures show:
 
-- **Quality and grounding:** the generated articles are mostly well grounded in their events (`article_factuality` 0.89) and score 0.80 for relevance to the profile and writing quality.
-- **Retrieval relevance:** the LLM judge rates 0.86 of the retrieved articles as relevant (`article_relevance`). Per run it is usually 1.00, with a few exceptions such as 0.25 and 0.50 on two profiles, so those low runs pull the mean down. `has_articles` is 1.00, so every query returned articles.
-- **Cross-encoder score:** the mean is low (0.26) because it averages the reranker score of every fetched article, including the ones `check_relevance` drops, not only the kept ones. A low mean does not mean the kept articles were irrelevant.
-- **Events:** the extracted events have a mean confidence of 0.77.
-- **Empty runs:** in one of the 10 runs the writer did not run (no events were produced), so that run has no `article_factuality`, `article_quality` or `events_confidence` score. Runs with nothing to score are left out of the means.
-- **Cost and speed:** a run takes about 103 s at the median and 188 s at P99, with no errors. The 10 runs cost about $0.08 in total, nearly all of it output tokens.
+- **Quality:** the graph's articles score 0.80 against 0.51 for the baseline's, and the graph is higher in all 9 runs LangSmith compared. This is the largest gap between the two.
+- **Grounding:** `article_factuality` is close (0.89 for the graph, 0.86 for the baseline), with the graph higher in 3 runs and lower in 2. The graph's judge also sees the events the writer was given, while the baseline's judge sees the retrieved articles.
+- **Retrieval relevance:** the LLM judge rates 0.86 of the graph's retrieved articles as relevant, against 0.66 for the baseline. For the graph it is usually 1.00 per run, with low runs of 0.25 and 0.50 on two profiles. `has_articles` is 1.00 for both, so every query returned articles.
+- **Cross-encoder score:** both runs average the reranker score (query against article) over every fetched article, including the ones the graph's `check_relevance` drops. The means are close (0.26 for the graph, 0.30 for the baseline), and the graph is higher in 6 of the 10 runs, so a few low runs pull its mean down. A low mean does not mean the articles the graph kept were irrelevant.
+- **Events:** the graph's extracted events have a mean confidence of 0.77. The baseline extracts no events, so it reports no figure.
+- **Empty runs:** in one of the graph's 10 runs the writer did not run (no events were produced), so that run has no `article_factuality`, `article_quality` or `events_confidence` score. Runs with nothing to score are left out of the means.
+- **Cost and speed:** the graph is slower (103 s against 37 s at the median, 188 s against 47 s at P99) and uses about 4.5× the tokens and 5.5× the cost of the baseline, which comes from its extra relevance check, event extraction and reranking steps. Neither had errors. The graph's 10 runs cost about $0.08 in total and the baseline's about $0.015, in both cases mostly output tokens.
 
-- **Why this setting may be biased**. In this project Tavily API was used to retrieve articles in real time and the free subscription for Tavily allows only 1000 credits per month for free. We cannot waste those - that is why we chose only 10 user profiles for benchmarking. So, the scarcity of samples is the first reason why the results are biased. The second reason is that we used LLM-as-judges for most of the metrics, which are simply gpt nano models (they were chosen as the cheapest option). Hence, some of them may be inaccurate in some sense, especially for so few samples, even though they show fairly high scores.
+- **Restrictions of the experiments and Conclusion** this project used tavily API to extract relevant news articles from the search query and it provides 1000 free queries per month for free. We surely do not want to waste those, so we ran the experiments only over 10 profiles (for more accurate evaluations one can try to extend the number to 200, for example). We can see that our graph outperforms the baseline in all the metrices provided, but because of the small amount of samples, only a few metrices provided statistically significant results that we can make judgements about and those are: `article_factuality` and `article_quality`.
 
-- **What will be done in the future**. In the future we are planning on mitigating the bias issues described above, add baseline evaluations and finally construct experiments that can assess how our architecture generates articles in the long term. 
+- **What can be done in the future** in the future we can try to increase the amount of samples and make the evaluations long-term: that is, run the graph for each sample for a day or more and judge the redundancy, relevance, factuality, quality of writing and other means of evaluation.
 ## Project structure
 
 ```
